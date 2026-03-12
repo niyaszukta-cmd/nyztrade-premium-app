@@ -589,7 +589,8 @@ def admin_equity():
                 m1.metric("Win Rate",f"{wins/len(pnls)*100:.0f}%"); m2.metric("Avg P&L",f"{sum(pnls)/len(pnls):+.2f}%"); m3.metric("Total",len(rows))
             for r in rows:
                 pc = "#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{f"{r[\'pnl_pct\']:+.2f}%" if r["pnl_pct"] else "—"}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
+                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
         conn.close()
 
 
@@ -690,7 +691,8 @@ def admin_options():
                 m1.metric("Win Rate",f"{wins/len(pnls)*100:.0f}%"); m2.metric("Avg P&L",f"{sum(pnls)/len(pnls):+.2f}%"); m3.metric("Total",len(rows))
             for r in rows:
                 pc = "#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{f"{r[\'pnl_pct\']:+.2f}%" if r["pnl_pct"] else "—"}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
+                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
         conn.close()
 
 
@@ -1088,7 +1090,8 @@ def member_equity(member):
                 st.markdown(f'<div class="sub-card" style="display:flex;gap:40px;align-items:center"><div class="winrate-badge">{wins/len(pnls)*100:.0f}% Win</div><div><span style="color:#99aabb;font-size:13px">Avg P&L</span><div style="font-size:24px;font-weight:800;color:{"#00ffb4" if sum(pnls)/len(pnls)>0 else "#ff6b6b"}">{sum(pnls)/len(pnls):+.1f}%</div></div><div><span style="color:#99aabb;font-size:13px">Total</span><div style="font-size:24px;font-weight:800;color:#fff">{len(rows)}</div></div></div>', unsafe_allow_html=True)
             for r in rows:
                 pc = "#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:800;float:right;font-size:20px">{f"{r[\'pnl_pct\']:+.2f}%" if r["pnl_pct"] else "—"}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
+                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:800;float:right;font-size:20px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
     conn.close()
 
 
@@ -1130,7 +1133,8 @@ def member_options(member):
                 st.markdown(f'<div class="sub-card" style="display:flex;gap:40px;align-items:center"><div class="winrate-badge">{wins/len(pnls)*100:.0f}% Win</div><div><span style="color:#99aabb;font-size:13px">Avg P&L</span><div style="font-size:24px;font-weight:800;color:{"#00ffb4" if sum(pnls)/len(pnls)>0 else "#ff6b6b"}">{sum(pnls)/len(pnls):+.1f}%</div></div><div><span style="color:#99aabb;font-size:13px">Total</span><div style="font-size:24px;font-weight:800;color:#fff">{len(pnls)}</div></div></div>', unsafe_allow_html=True)
             for r in rows:
                 pc = "#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{f"{r[\'pnl_pct\']:+.2f}%" if r["pnl_pct"] else "—"}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
+                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
     conn.close()
 
 
@@ -1191,7 +1195,8 @@ def _video_grid(rows):
             with col:
                 if r['thumbnail']: st.image(r['thumbnail'], use_column_width=True)
                 else: st.markdown('<div style="background:#041428;border:1px solid #0a2040;border-radius:8px;height:120px;display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:8px">🎬</div>', unsafe_allow_html=True)
-                st.markdown(f'<div style="padding:4px 0 12px"><div style="font-weight:700;font-size:15px;color:#fff;margin-bottom:4px;line-height:1.4">{r["title"]}</div>{f\'<div style="font-size:12px;color:#99aabb;margin-bottom:6px">{r["description"][:80]}{"..." if r["description"] and len(r["description"])>80 else ""}</div>\' if r["description"] else ""}<div style="font-size:11px;color:#445566">{r["posted_date"] or ""}</div></div>', unsafe_allow_html=True)
+                desc_html = f'<div style="font-size:12px;color:#99aabb;margin-bottom:6px">{r["description"][:80]}{"..." if r["description"] and len(r["description"])>80 else ""}</div>' if r["description"] else ""
+                st.markdown(f'<div style="padding:4px 0 12px"><div style="font-weight:700;font-size:15px;color:#fff;margin-bottom:4px;line-height:1.4">{r["title"]}</div>{desc_html}<div style="font-size:11px;color:#445566">{r["posted_date"] or ""}</div></div>', unsafe_allow_html=True)
                 st.link_button("▶️ Watch Now", r['video_url'], use_container_width=True)
 
 
