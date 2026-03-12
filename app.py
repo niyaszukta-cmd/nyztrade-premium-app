@@ -403,40 +403,185 @@ def render_bar_chart(title, labels, values, colors):
 
 def select_portal():
     st.markdown("""
-    <div style="max-width:500px;margin:80px auto;text-align:center">
-      <div style="font-family:'Syne',sans-serif;font-size:42px;font-weight:800;color:#00ddff">📈 NYZTRADE</div>
-      <div style="font-size:11px;color:#445566;letter-spacing:5px;text-transform:uppercase;margin-top:4px;margin-bottom:48px">
-        Select Portal
-      </div>
-    </div>""", unsafe_allow_html=True)
+    <style>
+    .portal-select-wrap {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
+    }
+    .portal-brand {
+        text-align: center;
+        margin-bottom: 60px;
+    }
+    .portal-brand-logo {
+        font-family: 'Syne', sans-serif;
+        font-size: 52px;
+        font-weight: 800;
+        background: linear-gradient(135deg, #00ddff, #00ffb4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -1px;
+        line-height: 1;
+    }
+    .portal-brand-sub {
+        font-size: 11px;
+        color: #334455;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        margin-top: 10px;
+    }
+    .portal-brand-tagline {
+        font-size: 15px;
+        color: #667788;
+        margin-top: 16px;
+        font-weight: 400;
+    }
+    .portal-cards {
+        display: flex;
+        gap: 24px;
+        margin-bottom: 32px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .portal-card {
+        width: 240px;
+        background: linear-gradient(160deg, #041830 0%, #020e1a 100%);
+        border: 1px solid #0d2540;
+        border-radius: 20px;
+        padding: 36px 28px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s;
+        position: relative;
+        overflow: hidden;
+    }
+    .portal-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00ddff, transparent);
+    }
+    .portal-card.member::before {
+        background: linear-gradient(90deg, transparent, #00ffb4, transparent);
+    }
+    .portal-card-icon {
+        font-size: 44px;
+        margin-bottom: 16px;
+        display: block;
+    }
+    .portal-card-title {
+        font-family: 'Syne', sans-serif;
+        font-size: 20px;
+        font-weight: 800;
+        color: #ffffff;
+        margin-bottom: 6px;
+    }
+    .portal-card-desc {
+        font-size: 12px;
+        color: #445566;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 20px;
+    }
+    .portal-card-features {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 24px;
+        text-align: left;
+    }
+    .portal-card-features li {
+        font-size: 12px;
+        color: #667788;
+        padding: 4px 0;
+        border-bottom: 1px solid #0a1f35;
+    }
+    .portal-card-features li::before {
+        content: '→ ';
+        color: #00ddff;
+    }
+    .portal-card.member .portal-card-features li::before {
+        color: #00ffb4;
+    }
+    .portal-divider {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        color: #223344;
+        font-size: 11px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+        width: 100%;
+        max-width: 520px;
+    }
+    .portal-divider::before, .portal-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: #0d2540;
+    }
+    .portal-footer {
+        font-size: 12px;
+        color: #223344;
+        text-align: center;
+        margin-top: 20px;
+        letter-spacing: 1px;
+    }
+    </style>
 
-    c1, c2, c3 = st.columns([1,2,1])
+    <div class="portal-select-wrap">
+        <div class="portal-brand">
+            <div class="portal-brand-logo">NYZTRADE</div>
+            <div class="portal-brand-sub">Quantitative Trading Intelligence</div>
+            <div class="portal-brand-tagline">GEX Analytics · Options Flows · Equity Research · ESG Valuation</div>
+        </div>
+
+        <div class="portal-cards">
+            <div class="portal-card">
+                <span class="portal-card-icon">⚙️</span>
+                <div class="portal-card-title">Admin Portal</div>
+                <div class="portal-card-desc">Command Centre</div>
+                <ul class="portal-card-features">
+                    <li>Post equity & options calls</li>
+                    <li>Manage premium members</li>
+                    <li>Payment & revenue tracking</li>
+                    <li>Discord & Telegram alerts</li>
+                    <li>Performance analytics</li>
+                </ul>
+            </div>
+            <div class="portal-card member">
+                <span class="portal-card-icon">📈</span>
+                <div class="portal-card-title">Member Portal</div>
+                <div class="portal-card-desc">Premium Access</div>
+                <ul class="portal-card-features">
+                    <li>Live equity & options calls</li>
+                    <li>Weekly GEX analysis maps</li>
+                    <li>Daily market updates</li>
+                    <li>Verified track record</li>
+                    <li>Exclusive video library</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="portal-divider">Select your portal</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.markdown("""
-        <div style="display:flex;gap:16px">
-          <div style="flex:1;background:#041428;border:1px solid #0a2040;border-radius:12px;
-                      padding:30px 20px;text-align:center;cursor:pointer">
-            <div style="font-size:32px">⚙️</div>
-            <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;
-                        color:#fff;margin-top:8px">Admin</div>
-            <div style="font-size:12px;color:#445566;margin-top:4px">Command Centre</div>
-          </div>
-          <div style="flex:1;background:#041428;border:1px solid #0a2040;border-radius:12px;
-                      padding:30px 20px;text-align:center;cursor:pointer">
-            <div style="font-size:32px">📊</div>
-            <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;
-                        color:#fff;margin-top:8px">Member</div>
-            <div style="font-size:12px;color:#445566;margin-top:4px">Premium Portal</div>
-          </div>
-        </div>""", unsafe_allow_html=True)
-        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
         pc1, pc2 = st.columns(2)
-        if pc1.button("⚙️ Admin Portal", use_container_width=True):
+        if pc1.button("⚙️  Enter Admin", use_container_width=True):
             st.session_state.portal = "admin"
             st.rerun()
-        if pc2.button("📈 Member Portal", use_container_width=True):
+        if pc2.button("📈  Enter Member", use_container_width=True):
             st.session_state.portal = "member"
             st.rerun()
+        st.markdown('<div class="portal-footer">Dr. Niyas N · linkedin.com/in/drniyas · Nyztrade Premium</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -446,25 +591,105 @@ def select_portal():
 def admin_login():
     ADMIN_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
     st.markdown("""
-    <div style="max-width:420px;margin:80px auto;background:#041428;
-                border:1px solid #0a2040;border-radius:16px;padding:40px;">
-      <div style="text-align:center;font-family:'Syne',sans-serif;font-size:30px;
-                  font-weight:800;color:#00ddff">⚙️ ADMIN PORTAL</div>
-      <div style="text-align:center;font-size:11px;color:#445566;
-                  letter-spacing:4px;margin-bottom:28px">NYZTRADE COMMAND CENTRE</div>
-    </div>""", unsafe_allow_html=True)
+    <style>
+    .login-wrap {
+        max-width: 420px;
+        margin: 60px auto 0;
+    }
+    .login-header {
+        text-align: center;
+        margin-bottom: 36px;
+    }
+    .login-icon {
+        width: 64px; height: 64px;
+        background: linear-gradient(135deg, #00ddff22, #00ddff11);
+        border: 1px solid #00ddff33;
+        border-radius: 16px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 28px;
+        margin: 0 auto 20px;
+    }
+    .login-title {
+        font-family: 'Syne', sans-serif;
+        font-size: 32px; font-weight: 800;
+        color: #ffffff;
+        letter-spacing: -0.5px;
+    }
+    .login-title span { color: #00ddff; }
+    .login-subtitle {
+        font-size: 11px; color: #334455;
+        letter-spacing: 4px; text-transform: uppercase;
+        margin-top: 8px;
+    }
+    .login-card {
+        background: linear-gradient(160deg, #041830, #020e1a);
+        border: 1px solid #0d2540;
+        border-radius: 20px;
+        padding: 36px 32px;
+        position: relative;
+        overflow: hidden;
+    }
+    .login-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00ddff 50%, transparent);
+    }
+    .login-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #00ddff11;
+        border: 1px solid #00ddff22;
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 11px;
+        color: #00ddff;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+    }
+    .login-hint {
+        text-align: center;
+        font-size: 12px;
+        color: #223344;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid #0a1f35;
+    }
+    </style>
+
+    <div class="login-wrap">
+        <div class="login-header">
+            <div class="login-icon">⚙️</div>
+            <div class="login-title">Admin <span>Portal</span></div>
+            <div class="login-subtitle">Nyztrade Command Centre</div>
+        </div>
+        <div class="login-card">
+            <div class="login-badge">🔐 &nbsp; Restricted Access</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     with st.form("admin_login"):
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.form_submit_button("Login →", use_container_width=True):
+        u = st.text_input("Username", placeholder="Enter admin username")
+        p = st.text_input("Password", type="password", placeholder="Enter password")
+        submitted = st.form_submit_button("Login to Command Centre →", use_container_width=True)
+        if submitted:
             if u == ADMIN_USERNAME and hashlib.sha256(p.encode()).hexdigest() == ADMIN_HASH:
                 st.session_state.admin_logged_in = True
                 st.rerun()
             else:
-                st.error("Invalid credentials")
-    if st.button("← Back to portal select"):
-        st.session_state.portal = None
-        st.rerun()
+                st.error("⚠️  Invalid credentials. Check username and password.")
+
+    st.markdown('<div style="text-align:center;margin-top:8px;font-size:12px;color:#223344">Default: drniyas / nyztrade2024</div>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("← Back to Portal Select", use_container_width=True):
+            st.session_state.portal = None
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -998,25 +1223,110 @@ def admin_performance():
 
 def member_login():
     st.markdown("""
-    <div style="max-width:440px;margin:60px auto;text-align:center">
-      <div style="font-family:'Syne',sans-serif;font-size:40px;font-weight:800;color:#00ddff">📈 NYZTRADE</div>
-      <div style="font-size:11px;color:#445566;letter-spacing:4px;text-transform:uppercase;margin:4px 0 30px">Premium Member Portal</div>
-    </div>""", unsafe_allow_html=True)
+    <style>
+    .member-login-wrap {
+        max-width: 420px;
+        margin: 50px auto 0;
+    }
+    .member-login-header {
+        text-align: center;
+        margin-bottom: 36px;
+    }
+    .member-login-logo {
+        font-family: 'Syne', sans-serif;
+        font-size: 44px; font-weight: 800;
+        background: linear-gradient(135deg, #00ddff, #00ffb4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    .member-login-sub {
+        font-size: 11px; color: #334455;
+        letter-spacing: 5px; text-transform: uppercase;
+        margin-top: 10px;
+    }
+    .member-login-card {
+        background: linear-gradient(160deg, #041830, #020e1a);
+        border: 1px solid #0d2540;
+        border-radius: 20px;
+        padding: 36px 32px;
+        position: relative;
+        overflow: hidden;
+        margin-bottom: 20px;
+    }
+    .member-login-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00ffb4 50%, transparent);
+    }
+    .member-perks {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+    }
+    .member-perk-tag {
+        background: #00ffb411;
+        border: 1px solid #00ffb422;
+        border-radius: 20px;
+        padding: 3px 10px;
+        font-size: 11px;
+        color: #00ffb4;
+        letter-spacing: 1px;
+    }
+    .member-footer {
+        text-align: center;
+        font-size: 13px;
+        color: #445566;
+        margin-top: 16px;
+    }
+    .member-footer a { color: #00ddff; text-decoration: none; }
+    </style>
+
+    <div class="member-login-wrap">
+        <div class="member-login-header">
+            <div class="member-login-logo">NYZTRADE</div>
+            <div class="member-login-sub">Premium Member Portal</div>
+        </div>
+        <div class="member-login-card">
+            <div class="member-perks">
+                <span class="member-perk-tag">📊 GEX Analytics</span>
+                <span class="member-perk-tag">⚡ Options Calls</span>
+                <span class="member-perk-tag">📈 Equity Calls</span>
+                <span class="member-perk-tag">🎬 Video Library</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     with st.form("member_login"):
-        username  = st.text_input("Username")
-        password  = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Access Premium →", use_container_width=True)
+        username  = st.text_input("Username", placeholder="Your login username")
+        password  = st.text_input("Password", type="password", placeholder="Your password")
+        submitted = st.form_submit_button("Access Premium Portal →", use_container_width=True)
         if submitted:
             member = verify_member(username, password)
             if member:
                 st.session_state.member = dict(member)
                 st.rerun()
             else:
-                st.error("Invalid credentials or subscription inactive.")
-    st.markdown('<div style="text-align:center;margin-top:16px;font-size:13px;color:#445566">Need access? <a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#00ddff">linkedin.com/in/drniyas</a></div>', unsafe_allow_html=True)
-    if st.button("← Back"):
-        st.session_state.portal = None
-        st.rerun()
+                st.error("⚠️  Invalid credentials or subscription inactive. Contact admin.")
+
+    st.markdown("""
+    <div class="member-footer">
+        Not a member yet? &nbsp;
+        <a href="https://linkedin.com/in/drniyas" target="_blank">linkedin.com/in/drniyas</a>
+        &nbsp;·&nbsp; Dr. Niyas N
+    </div>""", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("← Back to Portal Select", use_container_width=True):
+            st.session_state.portal = None
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════
