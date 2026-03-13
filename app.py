@@ -199,6 +199,13 @@ def init_db():
         notes TEXT, payment_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(client_id) REFERENCES clients(id))""")
+    # Pending registrations — created before payment, activated after
+    c.execute("""CREATE TABLE IF NOT EXISTS pending_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT, username TEXT UNIQUE, password_hash TEXT,
+        email TEXT, phone TEXT, plan TEXT,
+        razorpay_link_id TEXT, amount REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
     c.execute("""CREATE TABLE IF NOT EXISTS equity_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
         call_type TEXT NOT NULL, entry_price REAL, target1 REAL,
@@ -337,22 +344,171 @@ def tg_admin(msg):
 # RAZORPAY
 # ══════════════════════════════════════════════════════════════════════
 
-def get_payment_link(plan, name, email, phone):
-    if "YOUR_" in RZP_KEY_ID: return {"success":False,"error":"Razorpay not configured"}
+# ══════════════════════════════════════════════════════════════════════
+# RAZORPAY
+# ══════════════════════════════════════════════════════════════════════
+
+def rzp_configured():
+    return "YOUR_" not in RZP_KEY_ID and "YOUR_" not in RZP_KEY_SECRET
+
+def rzp_client():
+    import razorpay
+    return razorpay.Client(auth=(RZP_KEY_ID, RZP_KEY_SECRET))
+
+def verify_rzp_signature(payment_id, order_id, signature):
+    """Verify Razorpay payment signature for security."""
     try:
-        import razorpay
-        client = razorpay.Client(auth=(RZP_KEY_ID, RZP_KEY_SECRET))
+        msg = f"{order_id}|{payment_id}".encode()
+        expected = hmac.new(RZP_KEY_SECRET.encode(), msg, "sha256").hexdigest()
+        return hmac.compare_digest(expected, signature)
+    except Exception:
+        return False
+
+def create_payment_link(name, email, phone, plan, username, callback_url):
+    """Create a Razorpay Payment Link with callback URL back to the app."""
+    if not rzp_configured():
+        return {"success": False, "error": "Razorpay keys not configured"}
+    try:
+        client = rzp_client()
+        amount = PLAN_AMOUNTS.get(plan, 999)
+        days_map = {"Premium Monthly": 30, "Premium Quarterly": 90, "Premium Annual": 365, "Trial": 7}
         link = client.payment_link.create({
-            "amount": PLAN_AMOUNTS.get(plan,999)*100, "currency":"INR",
+            "amount": amount * 100,
+            "currency": "INR",
             "accept_partial": False,
             "description": f"Nyztrade Premium — {plan}",
-            "customer": {"name":name,"email":email,"contact":phone},
-            "notify": {"sms":True,"email":True}, "reminder_enable":True,
-            "notes": {"plan":plan},
+            "customer": {"name": name, "email": email, "contact": f"+91{phone}"},
+            "notify": {"sms": True, "email": True},
+            "reminder_enable": True,
+            "callback_url": callback_url,
+            "callback_method": "get",
+            "notes": {
+                "plan": plan,
+                "username": username,
+                "days": str(days_map.get(plan, 30)),
+            },
         })
-        return {"success":True,"url":link["short_url"]}
-    except ImportError: return {"success":False,"error":"pip install razorpay"}
-    except Exception as e: return {"success":False,"error":str(e)}
+        return {"success": True, "url": link["short_url"], "link_id": link["id"]}
+    except ImportError:
+        return {"success": False, "error": "razorpay package missing — add to requirements.txt"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def verify_payment_and_activate(payment_id, link_id=None):
+    """
+    Verify a Razorpay payment and activate the pending member.
+    Called when the user returns to the app after paying.
+    Returns (success, member_dict_or_error_msg)
+    """
+    if not rzp_configured():
+        return False, "Razorpay not configured"
+    try:
+        client = rzp_client()
+        payment = client.payment.fetch(payment_id)
+
+        if payment.get("status") != "captured":
+            # Try to capture if authorized
+            if payment.get("status") == "authorized":
+                client.payment.capture(payment_id, payment["amount"])
+                payment = client.payment.fetch(payment_id)
+
+        if payment.get("status") != "captured":
+            return False, f"Payment not completed. Status: {payment.get('status')}"
+
+        # Extract plan info from payment notes
+        notes    = payment.get("notes", {})
+        plan     = notes.get("plan", "Premium Monthly")
+        username = notes.get("username", "")
+        days     = int(notes.get("days", 30))
+        amount   = payment["amount"] / 100
+
+        conn = get_conn()
+
+        # Check if already activated (duplicate callback)
+        existing_pay = conn.execute(
+            "SELECT client_id FROM payments WHERE razorpay_id=?", (payment_id,)
+        ).fetchone()
+        if existing_pay:
+            member = conn.execute(
+                "SELECT * FROM clients WHERE id=?", (existing_pay["client_id"],)
+            ).fetchone()
+            conn.close()
+            return True, dict(member) if member else (False, "Member not found")
+
+        # Find pending member
+        pending = conn.execute(
+            "SELECT * FROM pending_members WHERE username=?", (username,)
+        ).fetchone() if username else None
+
+        today   = date.today()
+        expiry  = str(today + timedelta(days=days))
+
+        if pending:
+            # Create full client account
+            conn.execute("""
+                INSERT INTO clients
+                (name, username, password_hash, email, phone, plan, status, joined_date, expiry_date)
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (pending["name"], pending["username"], pending["password_hash"],
+                  pending["email"], pending["phone"], plan, "Active",
+                  str(today), expiry))
+            client_id = conn.execute(
+                "SELECT id FROM clients WHERE username=?", (username,)
+            ).fetchone()["id"]
+            # Remove from pending
+            conn.execute("DELETE FROM pending_members WHERE username=?", (username,))
+        else:
+            # Fallback: create account from payment info
+            name_from_pay = payment.get("contact", "Member")
+            email_from_pay = payment.get("email", "")
+            phone_from_pay = payment.get("contact", "")
+            fallback_user = username or f"user_{payment_id[-6:]}"
+            fallback_pass = hashlib.sha256(payment_id.encode()).hexdigest()[:12]
+            conn.execute("""
+                INSERT OR IGNORE INTO clients
+                (name, username, password_hash, email, phone, plan, status, joined_date, expiry_date)
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (name_from_pay, fallback_user, hash_password(fallback_pass),
+                  email_from_pay, phone_from_pay, plan, "Active", str(today), expiry))
+            client_id = conn.execute(
+                "SELECT id FROM clients WHERE username=?", (fallback_user,)
+            ).fetchone()["id"]
+
+        # Log payment
+        conn.execute("""
+            INSERT INTO payments (client_id, razorpay_id, amount, plan, status, payment_date)
+            VALUES (?,?,?,?,?,?)
+        """, (client_id, payment_id, amount, plan, "captured", str(today)))
+        conn.commit()
+
+        member = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+        conn.close()
+        return True, dict(member)
+
+    except ImportError:
+        return False, "razorpay package missing"
+    except Exception as e:
+        return False, str(e)
+
+def get_payment_link(plan, name, email, phone):
+    """Legacy helper used in admin panel."""
+    if not rzp_configured():
+        return {"success": False, "error": "Razorpay not configured"}
+    try:
+        client = rzp_client()
+        link = client.payment_link.create({
+            "amount": PLAN_AMOUNTS.get(plan, 999) * 100, "currency": "INR",
+            "accept_partial": False,
+            "description": f"Nyztrade Premium — {plan}",
+            "customer": {"name": name, "email": email, "contact": phone},
+            "notify": {"sms": True, "email": True}, "reminder_enable": True,
+            "notes": {"plan": plan},
+        })
+        return {"success": True, "url": link["short_url"]}
+    except ImportError:
+        return {"success": False, "error": "pip install razorpay"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -473,6 +629,10 @@ def select_portal():
             st.rerun()
         if p2.button("📈  Member Portal", use_container_width=True):
             st.session_state.portal = "member"
+            st.rerun()
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if st.button("🚀  New Member? Join & Pay Now", use_container_width=True):
+            st.session_state.portal = "register"
             st.rerun()
 
     st.markdown('''<div style="text-align:center;font-family:Space Grotesk,sans-serif;font-size:11px;color:#2a1e40;letter-spacing:2px;margin-top:20px;text-transform:uppercase;">Dr. Niyas N &nbsp;·&nbsp; linkedin.com/in/drniyas &nbsp;·&nbsp; Nyztrade Premium</div>''', unsafe_allow_html=True)
@@ -1397,7 +1557,220 @@ def member_profile(member):
 # MAIN APP ROUTER
 # ══════════════════════════════════════════════════════════════════════
 
+def register_and_pay():
+    """Self-registration + Razorpay payment page for new members."""
+    st.markdown(f'''<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+    .stApp{{background:linear-gradient(135deg,#0a0a12 0%,#10091e 60%,#0a0a12 100%)!important;}}
+    [data-testid="stSidebar"]{{display:none!important;}}
+    .block-container{{padding-top:20px!important;max-width:560px!important;}}
+    </style>''', unsafe_allow_html=True)
+
+    st.markdown(f'''
+    <div style="text-align:center;padding:24px 0 20px;">
+      <img src="data:image/jpeg;base64,{LOGO_B64}" style="width:200px;border-radius:14px;box-shadow:0 6px 32px #a855f728;margin-bottom:14px;">
+      <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.3px;">Join Nyztrade Premium</div>
+      <div style="font-size:12px;color:#5a4870;margin-top:6px;letter-spacing:1px;">Fill details below and pay to get instant access</div>
+    </div>
+
+    <div style="background:linear-gradient(145deg,#130d22,#0e0818);border:1px solid #6d28d9;border-radius:20px;padding:28px;position:relative;overflow:hidden;box-shadow:0 8px 40px #a855f720;margin-bottom:20px;">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#a855f7,#c084fc,transparent);"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:4px;">
+        <span style="background:#7c3aed18;border:1px solid #7c3aed33;border-radius:20px;padding:4px 12px;font-size:11px;color:#c084fc;font-weight:600;">📊 GEX Analytics</span>
+        <span style="background:#7c3aed18;border:1px solid #7c3aed33;border-radius:20px;padding:4px 12px;font-size:11px;color:#c084fc;font-weight:600;">⚡ Options Calls</span>
+        <span style="background:#7c3aed18;border:1px solid #7c3aed33;border-radius:20px;padding:4px 12px;font-size:11px;color:#c084fc;font-weight:600;">📈 Equity Calls</span>
+        <span style="background:#7c3aed18;border:1px solid #7c3aed33;border-radius:20px;padding:4px 12px;font-size:11px;color:#c084fc;font-weight:600;">🎬 Video Library</span>
+      </div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+    if not rzp_configured():
+        st.error("⚠️ Payment gateway not configured yet. Contact Dr. Niyas N to subscribe.")
+        st.markdown('<div style="text-align:center;margin-top:12px;"><a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#a855f7;font-weight:600;">🔗 linkedin.com/in/drniyas</a></div>', unsafe_allow_html=True)
+        if st.button("← Back", use_container_width=True):
+            st.session_state.portal = None; st.rerun()
+        return
+
+    # Plan selector with pricing
+    plan_display = {
+        "Premium Monthly":   "⭐ Monthly  — ₹999",
+        "Premium Quarterly": "💎 Quarterly — ₹2,499",
+        "Premium Annual":    "👑 Annual   — ₹7,999",
+    }
+    plan_keys  = list(plan_display.keys())
+    plan_label = st.selectbox("Choose Plan", [plan_display[p] for p in plan_keys])
+    plan       = plan_keys[[plan_display[p] for p in plan_keys].index(plan_label)]
+
+    with st.form("register_form"):
+        st.markdown('<div style="font-size:13px;color:#6b5a8a;margin-bottom:12px;font-weight:600;">Your Details</div>', unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        name     = c1.text_input("Full Name", placeholder="Dr. Niyas N")
+        username = c2.text_input("Username", placeholder="drniyas  (for login)")
+        c3, c4   = st.columns(2)
+        email    = c3.text_input("Email", placeholder="you@email.com")
+        phone    = c4.text_input("Phone", placeholder="9876543210  (10 digits)")
+        password = st.text_input("Set Password", type="password", placeholder="Min 8 characters — for portal login")
+
+        submitted = st.form_submit_button("Pay Now & Get Access →", use_container_width=True)
+        if submitted:
+            # Validate
+            errors = []
+            if not name.strip():          errors.append("Name is required")
+            if not username.strip():      errors.append("Username is required")
+            if len(username) < 3:         errors.append("Username min 3 chars")
+            if not email.strip():         errors.append("Email is required")
+            if not phone.strip():         errors.append("Phone is required")
+            if len(phone) != 10:          errors.append("Phone must be 10 digits")
+            if len(password) < 8:         errors.append("Password min 8 characters")
+
+            # Check username availability
+            if not errors:
+                conn = get_conn()
+                taken = conn.execute("SELECT id FROM clients WHERE username=?", (username,)).fetchone()
+                taken2 = conn.execute("SELECT id FROM pending_members WHERE username=?", (username,)).fetchone()
+                conn.close()
+                if taken or taken2: errors.append("Username already taken — choose another")
+
+            if errors:
+                for e in errors: st.error(e)
+            else:
+                # Save to pending_members
+                amount = PLAN_AMOUNTS[plan]
+                conn = get_conn()
+                conn.execute("""INSERT OR REPLACE INTO pending_members
+                    (name, username, password_hash, email, phone, plan, amount)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (name.strip(), username.strip(), hash_password(password),
+                      email.strip(), phone.strip(), plan, amount))
+                conn.commit(); conn.close()
+
+                # Build callback URL (current app URL + query params)
+                app_url = st.query_params.get("_stcore_url", "")
+                # Streamlit Cloud URL pattern
+                base_url = f"https://{st.context.headers.get('host', 'localhost')}"
+                callback = f"{base_url}/?rzp_status=success&rzp_username={username.strip()}"
+
+                result = create_payment_link(
+                    name=name.strip(), email=email.strip(),
+                    phone=phone.strip(), plan=plan,
+                    username=username.strip(), callback_url=callback
+                )
+                if result["success"]:
+                    st.session_state.rzp_pending_username = username.strip()
+                    st.session_state.rzp_payment_url = result["url"]
+                    st.rerun()
+                else:
+                    st.error(f"Payment link error: {result['error']}")
+
+    # Show payment button if link was generated
+    if st.session_state.get("rzp_payment_url"):
+        url = st.session_state.rzp_payment_url
+        uname = st.session_state.get("rzp_pending_username","")
+        st.markdown(f'''
+        <div style="background:#0f0a1e;border:1px solid #6d28d9;border-radius:16px;padding:24px;text-align:center;margin-top:16px;">
+          <div style="font-size:14px;color:#9d8ab5;margin-bottom:16px;">Your account <b style="color:#c084fc">@{uname}</b> is reserved.<br>Complete payment to activate instantly.</div>
+          <a href="{url}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;font-weight:700;padding:14px 36px;border-radius:12px;text-decoration:none;font-size:16px;letter-spacing:0.5px;">💳 Pay Now on Razorpay →</a>
+          <div style="font-size:11px;color:#3b2d55;margin-top:14px;">Secure payment · UPI · Cards · Net Banking · Wallets</div>
+        </div>
+        ''', unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("↩ Start Over", use_container_width=True):
+            del st.session_state["rzp_payment_url"]
+            if "rzp_pending_username" in st.session_state:
+                del st.session_state["rzp_pending_username"]
+            st.rerun()
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    if st.button("← Back to Portal Select", use_container_width=True):
+        st.session_state.portal = None
+        st.rerun()
+
+
+def payment_success_page(payment_id, username):
+    """Shown after Razorpay redirects back with payment_id."""
+    st.markdown(f'''<style>
+    .stApp{{background:linear-gradient(135deg,#0a0a12,#10091e)!important;}}
+    [data-testid="stSidebar"]{{display:none!important;}}
+    .block-container{{padding-top:40px!important;max-width:520px!important;}}
+    </style>''', unsafe_allow_html=True)
+
+    with st.spinner("Verifying your payment..."):
+        success, result = verify_payment_and_activate(payment_id, username)
+
+    if success:
+        member = result
+        st.markdown(f'''
+        <div style="text-align:center;padding:20px 0;">
+          <img src="data:image/jpeg;base64,{LOGO_B64}" style="width:180px;border-radius:14px;margin-bottom:20px;">
+          <div style="font-size:48px;margin-bottom:12px;">🎉</div>
+          <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:28px;font-weight:800;color:#fff;margin-bottom:8px;">Payment Successful!</div>
+          <div style="font-size:15px;color:#9d8ab5;margin-bottom:28px;">Welcome to Nyztrade Premium</div>
+
+          <div style="background:linear-gradient(135deg,#120d20,#0f0a1e);border:1px solid #6d28d9;border-radius:18px;padding:24px;text-align:left;margin-bottom:24px;">
+            <div style="position:absolute;"></div>
+            <div style="font-size:11px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:16px;">Your Account Details</div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #2d1f4e;">
+              <span style="color:#6b5a8a;font-size:13px;">Name</span>
+              <span style="color:#fff;font-weight:600;font-size:13px;">{member.get("name","")}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #2d1f4e;">
+              <span style="color:#6b5a8a;font-size:13px;">Username</span>
+              <span style="color:#c084fc;font-weight:700;font-size:13px;">@{member.get("username","")}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #2d1f4e;">
+              <span style="color:#6b5a8a;font-size:13px;">Plan</span>
+              <span style="color:#fff;font-weight:600;font-size:13px;">{member.get("plan","")}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;">
+              <span style="color:#6b5a8a;font-size:13px;">Access Until</span>
+              <span style="color:#00ffb4;font-weight:700;font-size:13px;">{member.get("expiry_date","")}</span>
+            </div>
+          </div>
+
+          <div style="background:#00ffb411;border:1px solid #00ffb433;border-radius:12px;padding:14px 18px;font-size:13px;color:#00ffb4;margin-bottom:20px;">
+            ✅ Your login: <b>@{member.get("username","")}</b> with the password you set
+          </div>
+        </div>
+        ''', unsafe_allow_html=True)
+
+        if st.button("🚀 Go to Member Portal →", use_container_width=True, type="primary"):
+            # Clear payment params and log in directly
+            st.query_params.clear()
+            st.session_state.portal = "member"
+            st.session_state.member = member
+            st.rerun()
+
+        # Notify admin via Telegram
+        tg_admin(f"🎉 New payment!\nName: {member.get('name')}\nPlan: {member.get('plan')}\nExpiry: {member.get('expiry_date')}")
+
+    else:
+        st.markdown(f'''
+        <div style="text-align:center;padding:20px 0;">
+          <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+          <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:24px;font-weight:800;color:#ff9999;margin-bottom:8px;">Payment Verification Failed</div>
+          <div style="font-size:14px;color:#9d8ab5;margin-bottom:20px;">{result}</div>
+          <div style="background:#ff6b6b11;border:1px solid #ff6b6b33;border-radius:12px;padding:16px;font-size:13px;color:#ff9999;">
+            If you completed the payment, contact Dr. Niyas N with your payment ID:<br>
+            <b style="color:#fff;">{payment_id}</b><br><br>
+            <a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#a855f7;font-weight:600;">🔗 linkedin.com/in/drniyas</a>
+          </div>
+        </div>
+        ''', unsafe_allow_html=True)
+        if st.button("← Try Again", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+
+
+
+
+
 def main():
+    # ── Handle Razorpay callback ─────────────────────────────────────
+    params = st.query_params
+    if "razorpay_payment_id" in params:
+        payment_success_page(params["razorpay_payment_id"], params.get("rzp_username",""))
+        return
+
     if "portal" not in st.session_state:
         st.session_state.portal = None
 
@@ -1476,6 +1849,8 @@ def main():
             "👤 My Profile":     member_profile,
         }
         pages[page](member)
+
+
 
 
 main()
