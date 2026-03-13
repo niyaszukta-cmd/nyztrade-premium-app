@@ -63,41 +63,41 @@ st.set_page_config(
 
 DARK_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=Inter:wght@400;500;600&family=Space+Mono&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.stApp { background: #010912; color: #e0eaf5; }
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
+.stApp { background: #08070f; color: #e2d9f3; }
 
 [data-testid="stSidebar"] {
-    background: #020e20 !important;
-    border-right: 1px solid #0a2040;
+    background: linear-gradient(180deg, #0f0a1e 0%, #0a0715 100%) !important;
+    border-right: 1px solid #2d1f4e !important;
 }
 
 .portal-logo {
-    text-align: center; padding: 24px 0 6px;
-    font-family: 'Syne', sans-serif; font-size: 28px;
-    font-weight: 800; color: #00ddff; letter-spacing: 1px;
+    text-align: center; padding: 28px 0 6px;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 22px;
+    font-weight: 800; color: #c084fc; letter-spacing: 1px;
 }
 .portal-sub {
-    text-align: center; font-size: 11px; color: #445566;
+    text-align: center; font-size: 10px; color: #4b3a6b;
     margin-bottom: 20px; letter-spacing: 4px; text-transform: uppercase;
 }
 
 .metric-card {
-    background: #041428; border: 1px solid #0a2040;
-    border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 10px;
+    background: #120d20; border: 1px solid #2d1f4e;
+    border-radius: 14px; padding: 20px; text-align: center; margin-bottom: 10px;
 }
-.metric-value { font-family: 'Syne', sans-serif; font-size: 38px; font-weight: 800; color: #00ddff; }
-.metric-label { font-size: 11px; color: #445566; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }
+.metric-value { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 36px; font-weight: 800; color: #a855f7; }
+.metric-label { font-size: 11px; color: #5a4870; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }
 
 .call-card {
-    background: #041428; border-left: 4px solid #00ddff;
-    border-radius: 8px; padding: 16px 20px; margin-bottom: 12px;
+    background: #0f0a1e; border-left: 3px solid #7c3aed;
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
 }
 .call-card.buy    { border-left-color: #00ffb4; }
 .call-card.sell   { border-left-color: #ff6b6b; }
 .call-card.hold   { border-left-color: #ffd700; }
-.call-card.closed { border-left-color: #445566; opacity: 0.7; }
+.call-card.closed { border-left-color: #3d2f5e; opacity: 0.75; }
 
 .badge {
     display: inline-block; padding: 2px 10px; border-radius: 20px;
@@ -106,34 +106,33 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .badge-buy    { background: #00ffb422; color: #00ffb4; border: 1px solid #00ffb4; }
 .badge-sell   { background: #ff6b6b22; color: #ff6b6b; border: 1px solid #ff6b6b; }
 .badge-hold   { background: #ffd70022; color: #ffd700; border: 1px solid #ffd700; }
-.badge-open   { background: #00ddff22; color: #00ddff; border: 1px solid #00ddff; }
-.badge-closed { background: #44556622; color: #99aabb; border: 1px solid #445566; }
+.badge-open   { background: #a855f722; color: #c084fc; border: 1px solid #a855f7; }
+.badge-closed { background: #3d2f5e33; color: #7c6a9b; border: 1px solid #3d2f5e; }
 .badge-ce     { background: #00ffb422; color: #00ffb4; border: 1px solid #00ffb4; }
 .badge-pe     { background: #ff6b6b22; color: #ff6b6b; border: 1px solid #ff6b6b; }
 
 .section-header {
-    font-family: 'Syne', sans-serif; font-size: 30px;
-    font-weight: 800; color: #ffffff; margin-bottom: 4px;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 28px;
+    font-weight: 800; color: #ffffff; margin-bottom: 4px; letter-spacing: -0.3px;
 }
-.section-sub { font-size: 13px; color: #445566; margin-bottom: 24px; letter-spacing: 1px; }
+.section-sub { font-size: 13px; color: #5a4870; margin-bottom: 24px; letter-spacing: 0.5px; }
 
 .tag {
-    display: inline-block; background: #00ddff22; color: #00ddff;
-    border: 1px solid #00ddff44; border-radius: 20px; font-size: 11px;
+    display: inline-block; background: #a855f722; color: #c084fc;
+    border: 1px solid #a855f744; border-radius: 20px; font-size: 11px;
     padding: 2px 10px; margin-right: 6px; font-weight: 600;
     letter-spacing: 1px; text-transform: uppercase;
 }
 
 .update-card {
-    background: #041428; border: 1px solid #0a2040;
+    background: #0f0a1e; border: 1px solid #2d1f4e;
     border-radius: 12px; padding: 20px; margin-bottom: 16px;
-    transition: border-color 0.2s;
 }
-.update-card:hover { border-color: #00ddff44; }
+.update-card:hover { border-color: #7c3aed55; }
 
 .sub-card {
-    background: linear-gradient(135deg, #041428, #041e38);
-    border: 1px solid #00ddff33; border-radius: 16px;
+    background: linear-gradient(135deg, #120d20, #0f0a1e);
+    border: 1px solid #3d1f6b; border-radius: 18px;
     padding: 28px; margin-bottom: 20px;
 }
 
@@ -141,26 +140,28 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .pnl-neg { color: #ff6b6b; font-weight: 700; }
 
 .stButton > button {
-    background: #00ddff !important; color: #010912 !important;
-    font-weight: 700 !important; border: none !important;
-    border-radius: 8px !important; transition: all 0.2s;
+    background: linear-gradient(135deg, #7c3aed, #a855f7) !important;
+    color: #fff !important; font-weight: 700 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    border: none !important; border-radius: 10px !important;
+    transition: all 0.2s !important; letter-spacing: 0.3px !important;
 }
-.stButton > button:hover { background: #00ffb4 !important; transform: translateY(-1px); }
+.stButton > button:hover { opacity: 0.88 !important; transform: translateY(-1px) !important; }
 
 div[data-testid="stForm"] {
-    background: #041428; border: 1px solid #0a2040; border-radius: 12px; padding: 20px;
+    background: #0f0a1e; border: 1px solid #2d1f4e; border-radius: 14px; padding: 20px;
 }
 
 .stTextInput > div > div, .stSelectbox > div,
 .stTextArea > div > div, .stNumberInput > div > div {
-    background: #020e20 !important; border-color: #0a2040 !important; color: #e0eaf5 !important;
+    background: #0a0715 !important; border-color: #2d1f4e !important; color: #e2d9f3 !important;
 }
 
 .winrate-badge {
-    background: linear-gradient(135deg, #00ffb422, #00ddff22);
-    border: 1px solid #00ffb444; border-radius: 50px; padding: 6px 20px;
-    font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800;
-    color: #00ffb4; display: inline-block;
+    background: linear-gradient(135deg, #a855f722, #7c3aed22);
+    border: 1px solid #a855f744; border-radius: 50px; padding: 6px 20px;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800;
+    color: #c084fc; display: inline-block;
 }
 </style>
 """
@@ -1330,53 +1331,64 @@ def member_performance(member):
 
 
 def member_profile(member):
-    st.markdown('<div class="section-header">👤 My Profile</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Your subscription details and account settings</div>', unsafe_allow_html=True)
     exp = date.fromisoformat(member['expiry_date']) if member.get('expiry_date') else None
-    dl  = (exp-date.today()).days if exp else None
-    dl_col = "#ff6b6b" if dl and dl<=7 else "#00ffb4"
-    sc = {"Active":"#00ffb4","Trial":"#ffd700","Inactive":"#ff6b6b"}.get(member['status'],"#aaa")
-    st.markdown(f"""<div class="sub-card">
-      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px">
+    dl  = (exp - date.today()).days if exp else None
+    dl_col = "#ff6b6b" if dl is not None and dl <= 7 else "#00ffb4"
+    sc = {"Active":"#a855f7","Trial":"#ffd700","Inactive":"#ff6b6b"}.get(member['status'],"#aaa")
+    plan_icon = {"Premium Monthly":"⭐","Premium Quarterly":"💎","Premium Annual":"👑","Trial":"🔬"}.get(member.get('plan',''),"📋")
+
+    st.markdown(f"""
+    <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.3px;margin-bottom:4px;">👤 My Profile</div>
+    <div style="font-size:13px;color:#5a4870;margin-bottom:24px;">Your subscription details and account info</div>
+
+    <div style="background:linear-gradient(135deg,#120d20,#0f0a1e);border:1px solid #3d1f6b;border-radius:20px;padding:28px;margin-bottom:20px;position:relative;overflow:hidden;">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#a855f7,#c084fc,transparent);"></div>
+
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:20px;align-items:flex-start;">
         <div>
-          <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#fff">{member['name']}</div>
-          <div style="font-size:13px;color:#445566">@{member['username']}</div>
-          {f'<div style="font-size:13px;color:#445566">💬 {member["discord_id"]}</div>' if member.get('discord_id') else ""}
-          {f'<div style="font-size:13px;color:#445566">📧 {member["email"]}</div>' if member.get('email') else ""}
+          <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:30px;font-weight:800;color:#fff;letter-spacing:-0.5px;">{member['name']}</div>
+          <div style="font-size:13px;color:#6b5a8a;margin-top:4px;font-weight:500;">@{member['username']}</div>
+          {f'<div style="font-size:13px;color:#5a4870;margin-top:6px;">📧 {member["email"]}</div>' if member.get('email') else ''}
+          {f'<div style="font-size:13px;color:#5a4870;margin-top:4px;">💬 {member["discord_id"]}</div>' if member.get('discord_id') else ''}
         </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;color:#445566;text-transform:uppercase">Plan</div>
-          <div style="font-size:20px;font-weight:700;color:#00ddff">{member['plan']}</div>
-          <div style="font-size:11px;color:#445566;text-transform:uppercase;margin-top:8px">Status</div>
-          <div style="font-size:18px;font-weight:700;color:{sc}">{member['status']}</div>
+        <div style="text-align:right;">
+          <div style="background:#a855f718;border:1px solid #a855f733;border-radius:12px;padding:16px 20px;min-width:160px;">
+            <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;">Current Plan</div>
+            <div style="font-size:18px;font-weight:800;color:#c084fc;font-family:'Plus Jakarta Sans',sans-serif;">{plan_icon} {member.get('plan','—')}</div>
+            <div style="margin-top:10px;font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;">Status</div>
+            <div style="font-size:16px;font-weight:700;color:{sc};margin-top:3px;">{member['status']}</div>
+          </div>
         </div>
       </div>
-      <div style="display:flex;gap:30px;margin-top:24px;padding-top:20px;border-top:1px solid #0a2040;flex-wrap:wrap">
-        <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Member Since</div><div style="font-size:18px;font-weight:700;color:#fff">{member.get('joined_date','—')}</div></div>
-        <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Expires</div><div style="font-size:18px;font-weight:700;color:#fff">{member.get('expiry_date','—')}</div></div>
-        <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Days Left</div><div style="font-size:18px;font-weight:700;color:{dl_col}">{f'{dl} days' if dl is not None else '—'}{'  ⚠️' if dl and dl<=7 else ''}</div></div>
+
+      <div style="height:1px;background:linear-gradient(90deg,#3d1f6b,transparent);margin:24px 0;"></div>
+
+      <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:120px;background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:16px;">
+          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Member Since</div>
+          <div style="font-size:16px;font-weight:700;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;">{member.get('joined_date','—')}</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:16px;">
+          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Expires On</div>
+          <div style="font-size:16px;font-weight:700;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;">{member.get('expiry_date','—')}</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#0a0715;border:1px solid {'#ff6b6b44' if dl is not None and dl<=7 else '#2d1f4e'};border-radius:12px;padding:16px;">
+          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Days Left</div>
+          <div style="font-size:16px;font-weight:700;color:{dl_col};font-family:'Plus Jakarta Sans',sans-serif;">{'⚠️ ' if dl is not None and dl<=7 else ''}{f'{dl} days' if dl is not None else '—'}</div>
+        </div>
       </div>
-      {f'<div style="margin-top:16px;background:#ff6b6b11;border:1px solid #ff6b6b33;border-radius:8px;padding:12px;color:#ff6b6b;font-size:14px">⚠️ Expiring in {dl} days — contact admin to renew.</div>' if dl and dl<=7 else ""}
-    </div>""", unsafe_allow_html=True)
-    st.divider()
-    st.markdown("#### 🔑 Change Password")
-    with st.form("change_pw"):
-        cur_pw  = st.text_input("Current Password", type="password")
-        new_pw  = st.text_input("New Password", type="password", placeholder="Min 8 characters")
-        conf_pw = st.text_input("Confirm New Password", type="password")
-        if st.form_submit_button("Update Password →", use_container_width=True):
-            if not cur_pw or not new_pw or not conf_pw: st.error("All fields required.")
-            elif new_pw != conf_pw: st.error("New passwords don't match.")
-            elif len(new_pw) < 8: st.error("Min 8 characters.")
-            else:
-                conn = get_conn()
-                row = conn.execute("SELECT id FROM clients WHERE id=? AND password_hash=?",(member['id'],hash_password(cur_pw))).fetchone()
-                if not row: st.error("Current password incorrect.")
-                else:
-                    conn.execute("UPDATE clients SET password_hash=? WHERE id=?",(hash_password(new_pw),member['id']))
-                    conn.commit(); st.session_state.member['password_hash']=hash_password(new_pw)
-                    st.success("✅ Password updated.")
-                conn.close()
+
+      {f'<div style="margin-top:20px;background:#ff6b6b11;border:1px solid #ff6b6b33;border-radius:12px;padding:14px 18px;color:#ff9999;font-size:13px;font-weight:500;">⚠️ Your subscription expires in <b>{dl} days</b>. Contact Dr. Niyas N to renew your premium access.</div>' if dl is not None and dl <= 7 else ''}
+    </div>
+
+    <div style="background:#0f0a1e;border:1px solid #2d1f4e;border-radius:16px;padding:24px;">
+      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:700;color:#c084fc;margin-bottom:16px;">📞 Need Help or Renewal?</div>
+      <div style="font-size:14px;color:#6b5a8a;line-height:1.8;">
+        To renew your subscription or get support, reach out to Dr. Niyas N directly:<br>
+        <a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#a855f7;text-decoration:none;font-weight:600;">🔗 linkedin.com/in/drniyas</a>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════
