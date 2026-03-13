@@ -1333,76 +1333,64 @@ def member_performance(member):
 
 
 def member_profile(member):
-    exp     = date.fromisoformat(member['expiry_date']) if member.get('expiry_date') else None
-    dl      = (exp - date.today()).days if exp else None
-    dl_col  = "#ff6b6b" if dl is not None and dl <= 7 else "#00ffb4"
-    sc      = {"Active":"#a855f7","Trial":"#ffd700","Inactive":"#ff6b6b"}.get(member['status'],"#aaa")
-    plan_icon = {"Premium Monthly":"⭐","Premium Quarterly":"💎","Premium Annual":"👑","Trial":"🔬"}.get(member.get('plan',''),"📋")
+    exp      = date.fromisoformat(member['expiry_date']) if member.get('expiry_date') else None
+    dl       = (exp - date.today()).days if exp else None
+    dl_col   = "#ff6b6b" if dl is not None and dl <= 7 else "#00ffb4"
+    sc       = {"Active":"#a855f7","Trial":"#ffd700","Inactive":"#ff6b6b"}.get(member['status'], "#aaa")
+    plan_icon= {"Premium Monthly":"⭐","Premium Quarterly":"💎","Premium Annual":"👑","Trial":"🔬"}.get(member.get('plan',''), "📋")
+    email_html   = f'<div style="font-size:13px;color:#5a4870;margin-top:6px;">📧 {member["email"]}</div>' if member.get('email') else ''
+    discord_html = f'<div style="font-size:13px;color:#5a4870;margin-top:4px;">💬 {member["discord_id"]}</div>' if member.get('discord_id') else ''
+    warn_icon    = "⚠️ " if dl is not None and dl <= 7 else ""
+    days_label   = f"{dl} days" if dl is not None else "—"
+    days_border  = "#ff6b6b44" if dl is not None and dl <= 7 else "#2d1f4e"
+    name         = member['name']
+    username     = member['username']
+    plan_name    = member.get('plan', '—')
+    status       = member['status']
+    joined       = member.get('joined_date', '—')
+    expiry       = member.get('expiry_date', '—')
 
-    # Pre-compute all conditional HTML snippets
-    email_html    = f'<div style="font-size:13px;color:#5a4870;margin-top:6px;">📧 {member["email"]}</div>' if member.get('email') else ''
-    discord_html  = f'<div style="font-size:13px;color:#5a4870;margin-top:4px;">💬 {member["discord_id"]}</div>' if member.get('discord_id') else ''
-    days_border   = "#ff6b6b44" if dl is not None and dl <= 7 else "#2d1f4e"
-    warn_icon     = "⚠️ " if dl is not None and dl <= 7 else ""
-    days_label    = f"{dl} days" if dl is not None else "—"
-    expiry_banner = f'<div style="margin-top:20px;background:#ff6b6b11;border:1px solid #ff6b6b33;border-radius:12px;padding:14px 18px;color:#ff9999;font-size:13px;font-weight:500;">⚠️ Subscription expires in <b>{dl} days</b>. Contact Dr. Niyas N to renew.</div>' if dl is not None and dl <= 7 else ''
-    name          = member['name']
-    username      = member['username']
-    plan_name     = member.get('plan', '—')
-    status        = member['status']
-    joined        = member.get('joined_date', '—')
-    expiry        = member.get('expiry_date', '—')
+    st.markdown('<div style="font-family:Plus Jakarta Sans,sans-serif;font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.3px;margin-bottom:4px;">👤 My Profile</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:13px;color:#5a4870;margin-bottom:20px;">Your subscription details and account info</div>', unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.3px;margin-bottom:4px;">👤 My Profile</div>
-    <div style="font-size:13px;color:#5a4870;margin-bottom:24px;">Your subscription details and account info</div>
+    # Top glow bar
+    st.markdown('<div style="height:3px;background:linear-gradient(90deg,transparent,#a855f7,#c084fc,transparent);border-radius:4px;margin-bottom:20px;"></div>', unsafe_allow_html=True)
 
-    <div style="background:linear-gradient(135deg,#120d20,#0f0a1e);border:1px solid #3d1f6b;border-radius:20px;padding:28px;margin-bottom:20px;position:relative;overflow:hidden;">
-      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#a855f7,#c084fc,transparent);"></div>
-
-      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-bottom:24px;">
-        <div>
-          <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:30px;font-weight:800;color:#fff;letter-spacing:-0.5px;">{name}</div>
-          <div style="font-size:13px;color:#6b5a8a;margin-top:4px;font-weight:500;">@{username}</div>
+    # Name + Plan side by side using st.columns
+    col_left, col_right = st.columns([3, 2])
+    with col_left:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#120d20,#0f0a1e);border:1px solid #3d1f6b;border-radius:16px;padding:24px;height:100%;">
+          <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">{name}</div>
+          <div style="font-size:13px;color:#6b5a8a;margin-top:6px;font-weight:500;">@{username}</div>
           {email_html}
           {discord_html}
-        </div>
-        <div style="background:#a855f718;border:1px solid #a855f733;border-radius:14px;padding:18px 22px;min-width:150px;text-align:center;">
-          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Current Plan</div>
-          <div style="font-size:17px;font-weight:800;color:#c084fc;font-family:Plus Jakarta Sans,sans-serif;">{plan_icon} {plan_name}</div>
-          <div style="margin-top:12px;font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;">Status</div>
-          <div style="font-size:15px;font-weight:700;color:{sc};margin-top:4px;">{status}</div>
-        </div>
-      </div>
+        </div>""", unsafe_allow_html=True)
+    with col_right:
+        st.markdown(f"""
+        <div style="background:#a855f718;border:1px solid #a855f744;border-radius:16px;padding:24px;text-align:center;height:100%;">
+          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;">Current Plan</div>
+          <div style="font-size:18px;font-weight:800;color:#c084fc;font-family:Plus Jakarta Sans,sans-serif;">{plan_icon} {plan_name}</div>
+          <div style="margin-top:14px;font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;">Status</div>
+          <div style="font-size:16px;font-weight:700;color:{sc};margin-top:6px;">{status}</div>
+        </div>""", unsafe_allow_html=True)
 
-      <div style="height:1px;background:linear-gradient(90deg,#3d1f6b,transparent);margin-bottom:20px;"></div>
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-      <div style="display:flex;gap:16px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:110px;background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:14px 16px;">
-          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Member Since</div>
-          <div style="font-size:15px;font-weight:700;color:#fff;font-family:Plus Jakarta Sans,sans-serif;">{joined}</div>
-        </div>
-        <div style="flex:1;min-width:110px;background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:14px 16px;">
-          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Expires On</div>
-          <div style="font-size:15px;font-weight:700;color:#fff;font-family:Plus Jakarta Sans,sans-serif;">{expiry}</div>
-        </div>
-        <div style="flex:1;min-width:110px;background:#0a0715;border:1px solid {days_border};border-radius:12px;padding:14px 16px;">
-          <div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Days Left</div>
-          <div style="font-size:15px;font-weight:700;color:{dl_col};font-family:Plus Jakarta Sans,sans-serif;">{warn_icon}{days_label}</div>
-        </div>
-      </div>
+    # 3 stat boxes
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f'<div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:16px;text-align:center;"><div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Member Since</div><div style="font-size:15px;font-weight:700;color:#fff;font-family:Plus Jakarta Sans,sans-serif;">{joined}</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:12px;padding:16px;text-align:center;"><div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Expires On</div><div style="font-size:15px;font-weight:700;color:#fff;font-family:Plus Jakarta Sans,sans-serif;">{expiry}</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div style="background:#0a0715;border:1px solid {days_border};border-radius:12px;padding:16px;text-align:center;"><div style="font-size:10px;color:#5a4870;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Days Left</div><div style="font-size:15px;font-weight:700;color:{dl_col};font-family:Plus Jakarta Sans,sans-serif;">{warn_icon}{days_label}</div></div>', unsafe_allow_html=True)
 
-      {expiry_banner}
-    </div>
+    if dl is not None and dl <= 7:
+        st.markdown(f'<div style="margin-top:16px;background:#ff6b6b11;border:1px solid #ff6b6b33;border-radius:12px;padding:14px 18px;color:#ff9999;font-size:13px;">⚠️ Subscription expires in <b>{dl} days</b>. Contact Dr. Niyas N to renew.</div>', unsafe_allow_html=True)
 
-    <div style="background:#0f0a1e;border:1px solid #2d1f4e;border-radius:16px;padding:24px;">
-      <div style="font-family:Plus Jakarta Sans,sans-serif;font-size:16px;font-weight:700;color:#c084fc;margin-bottom:12px;">📞 Need Help or Renewal?</div>
-      <div style="font-size:14px;color:#6b5a8a;line-height:1.9;">
-        Reach out to Dr. Niyas N directly to renew or get support:<br>
-        <a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#a855f7;text-decoration:none;font-weight:600;">🔗 linkedin.com/in/drniyas</a>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown('<div style="background:#0f0a1e;border:1px solid #2d1f4e;border-radius:16px;padding:24px;"><div style="font-family:Plus Jakarta Sans,sans-serif;font-size:16px;font-weight:700;color:#c084fc;margin-bottom:12px;">📞 Need Help or Renewal?</div><div style="font-size:14px;color:#6b5a8a;line-height:1.9;">Reach out to Dr. Niyas N directly to renew or get support:<br><a href="https://linkedin.com/in/drniyas" target="_blank" style="color:#a855f7;text-decoration:none;font-weight:600;">🔗 linkedin.com/in/drniyas</a></div></div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════
