@@ -642,53 +642,114 @@ def render_bar_chart(title, labels, values, colors):
 
 import base64
 
+def _parse_notes_sections(notes_text):
+    """Split stored notes into summary, positives, negatives sections."""
+    summary = ""; positives = []; negatives = []
+    if not notes_text:
+        return summary, positives, negatives
+    sections = notes_text.split("\n\n")
+    for section in sections:
+        s = section.strip()
+        if s.upper().startswith("KEY POSITIVES:") or s.upper().startswith("KEY POSITIVES\n"):
+            lines = s.split("\n")[1:]
+            positives = [l.lstrip("•- ").strip() for l in lines if l.strip()]
+        elif s.upper().startswith("KEY RISKS:") or s.upper().startswith("KEY RISKS\n"):
+            lines = s.split("\n")[1:]
+            negatives = [l.lstrip("•- ").strip() for l in lines if l.strip()]
+        else:
+            if s:
+                summary = s
+    # Fallback: if no structured sections, treat bullet lines as positives
+    if not positives and not negatives and "\n•" in notes_text:
+        for line in notes_text.split("\n"):
+            stripped = line.lstrip("•- ").strip()
+            if stripped:
+                positives.append(stripped)
+        summary = ""
+    return summary, positives, negatives
+
+
 def render_report_meta(r):
-    """Renders the metadata header strip for a research report."""
+    """Renders the metadata header strip for a research report, including AI summary."""
     ct_color = {"BUY": "#00ffb4", "SELL": "#ff6b6b", "HOLD": "#ffd700",
                 "ACCUMULATE": "#00ddff", "REDUCE": "#ff8c42",
                 "NEUTRAL": "#9d8ab5", "UNDERPERFORM": "#ff6b6b"}.get(
-                    (r.get('call_type') or "").upper(), "#9d8ab5")
+                    (r.get("call_type") or "").upper(), "#9d8ab5")
     upside_html = ""
-    if r.get('upside_pct') is not None:
-        up_col = "#00ffb4" if r['upside_pct'] >= 0 else "#ff6b6b"
-        upside_html = f'<div style="background:{up_col}18;border:1px solid {up_col}44;border-radius:8px;padding:10px 16px;text-align:center"><div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Upside</div><div style="font-size:18px;font-weight:700;color:{up_col}">{r["upside_pct"]:+.1f}%</div></div>'
+    if r.get("upside_pct") is not None:
+        try:
+            up_val = float(r["upside_pct"])
+            up_col = "#00ffb4" if up_val >= 0 else "#ff6b6b"
+            upside_html = f'<div style="background:{up_col}18;border:1px solid {up_col}44;border-radius:8px;padding:10px 16px;text-align:center"><div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Upside</div><div style="font-size:18px;font-weight:700;color:{up_col}">{up_val:+.1f}%</div></div>'
+        except Exception:
+            pass
     tags_html = " ".join(
         f'<span style="background:#a855f718;color:#c084fc;border:1px solid #a855f730;border-radius:20px;font-size:10px;padding:2px 10px;font-weight:600">{t.strip()}</span>'
         for t in (r.get("tags") or "").split(",") if t.strip()
     )
+
+    # Parse notes into summary + positives + negatives
+    notes_raw = r.get("notes") or ""
+    summary, positives, negatives = _parse_notes_sections(notes_raw)
+
+    # Build positives HTML
+    pos_html = ""
+    if positives:
+        items = "".join(f'<div style="font-size:13px;color:#c0e8d0;padding:3px 0;border-left:2px solid #00ffb4;padding-left:10px;margin-bottom:4px">✅ {p}</div>' for p in positives)
+        pos_html = f'<div style="margin-top:14px"><div style="font-size:10px;color:#00ffb4;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin-bottom:8px">Key Positives</div>{items}</div>'
+
+    # Build negatives HTML
+    neg_html = ""
+    if negatives:
+        items = "".join(f'<div style="font-size:13px;color:#f0c8c8;padding:3px 0;border-left:2px solid #ff6b6b;padding-left:10px;margin-bottom:4px">⚠️ {n}</div>' for n in negatives)
+        neg_html = f'<div style="margin-top:12px"><div style="font-size:10px;color:#ff6b6b;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin-bottom:8px">Key Risks</div>{items}</div>'
+
+    summary_html = f'<div style="margin-top:12px;font-size:13px;color:#9d8ab5;line-height:1.7">{summary}</div>' if summary else ""
+
+    cmp_str    = f"₹{r['current_price']}" if r.get("current_price") else "—"
+    target_str = f"₹{r['target_price']}"  if r.get("target_price")  else "—"
+    analyst_html = f'<div style="font-size:11px;color:#9d8ab5;margin-top:3px">Analyst: {r["analyst"]}</div>' if r.get("analyst") else ""
+
     st.markdown(f"""
     <div class="report-card">
       <div style="position:absolute;top:0;left:0;right:0;height:3px;
            background:linear-gradient(90deg,transparent,{ct_color},transparent);"></div>
+
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div>
-          <div style="font-size:22px;font-weight:800;color:#fff">{r.get('symbol') or '—'}
+          <div style="font-size:22px;font-weight:800;color:#fff">{r.get("symbol") or "—"}
             <span style="background:{ct_color}22;color:{ct_color};border:1px solid {ct_color}55;
                   border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;
-                  margin-left:10px;letter-spacing:1px;text-transform:uppercase;vertical-align:middle">{r.get('call_type') or '—'}</span>
+                  margin-left:10px;letter-spacing:1px;text-transform:uppercase;vertical-align:middle">{r.get("call_type") or "—"}</span>
           </div>
-          <div style="font-size:12px;color:#6b5a8a;margin-top:4px">{r.get('sector') or ''} &nbsp;·&nbsp; {r.get('category') or ''}</div>
+          <div style="font-size:12px;color:#6b5a8a;margin-top:4px">{r.get("sector") or ""} &nbsp;·&nbsp; {r.get("category") or ""}</div>
         </div>
         <div style="text-align:right">
-          <div style="font-size:13px;font-weight:700;color:#c084fc">{r.get('broker_house') or '—'}</div>
-          <div style="font-size:11px;color:#445566;margin-top:4px">{r.get('report_date') or ''}</div>
-          {f'<div style="font-size:11px;color:#9d8ab5;margin-top:3px">Analyst: {r["analyst"]}</div>' if r.get('analyst') else ''}
+          <div style="font-size:13px;font-weight:700;color:#c084fc">{r.get("broker_house") or "—"}</div>
+          <div style="font-size:11px;color:#445566;margin-top:4px">{r.get("report_date") or ""}</div>
+          {analyst_html}
         </div>
       </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:8px;padding:10px 16px;text-align:center">
           <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">CMP</div>
-          <div style="font-size:18px;font-weight:700;color:#fff">{'₹'+str(r['current_price']) if r.get('current_price') else '—'}</div>
+          <div style="font-size:18px;font-weight:700;color:#fff">{cmp_str}</div>
         </div>
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:8px;padding:10px 16px;text-align:center">
           <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Target</div>
-          <div style="font-size:18px;font-weight:700;color:{ct_color}">{'₹'+str(r['target_price']) if r.get('target_price') else '—'}</div>
+          <div style="font-size:18px;font-weight:700;color:{ct_color}">{target_str}</div>
         </div>
         {upside_html}
       </div>
-      {f'<div style="margin-top:12px;font-size:13px;color:#6b5a8a">{r["notes"]}</div>' if r.get('notes') else ''}
-      {f'<div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">{tags_html}</div>' if tags_html else ''}
-      <div style="margin-top:10px;font-size:10px;color:#3b2d55;letter-spacing:1px">
+
+      {summary_html}
+      {pos_html}
+      {neg_html}
+
+      {f'<div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">{tags_html}</div>' if tags_html else ""}
+
+      <div style="margin-top:12px;font-size:10px;color:#3b2d55;letter-spacing:1px">
         🔒 PDF view-only · Right-click and print/save shortcuts disabled
       </div>
     </div>
@@ -1002,6 +1063,107 @@ def admin_login():
 # ADMIN — RESEARCH REPORTS
 # ══════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════
+# PDF AUTO-FILL HELPERS
+# ══════════════════════════════════════════════════════════════════════
+
+def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
+    """Extract plain text from PDF bytes using PyMuPDF. Returns up to max_chars."""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        parts = []
+        total = 0
+        for page in doc:
+            t = page.get_text("text")
+            parts.append(t)
+            total += len(t)
+            if total >= max_chars:
+                break
+        doc.close()
+        text = "\n".join(parts)[:max_chars]
+        return text.strip()
+    except Exception as e:
+        return ""
+
+
+def _parse_report_with_claude(pdf_text: str, broker_houses: list, categories: list) -> dict:
+    """
+    Send extracted PDF text to Claude and get structured JSON back.
+    Returns a dict with all form fields pre-filled.
+    Falls back to empty dict on any error.
+    """
+    try:
+        # Try to get API key from Streamlit secrets or environment
+        api_key = None
+        try:
+            api_key = st.secrets.get("ANTHROPIC_API_KEY") or st.secrets.get("anthropic_api_key")
+        except Exception:
+            pass
+        if not api_key:
+            import os
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key or api_key.startswith("YOUR_"):
+            return {"_error": "no_api_key"}
+
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        broker_list = ", ".join(broker_houses)
+        cat_list    = ", ".join(categories)
+
+        prompt = f"""You are a financial document analyst. Extract structured data from this broker research report text.
+
+Return a JSON object with EXACTLY these keys (use null for anything not found):
+{{
+  "title": "exact report title or descriptive title",
+  "broker_house": "one of: {broker_list}",
+  "category": "one of: {cat_list}",
+  "symbol": "NSE/BSE stock symbol e.g. RELIANCE",
+  "sector": "sector e.g. Banking, IT, Auto, FMCG",
+  "call_type": "one of: BUY, SELL, HOLD, ACCUMULATE, REDUCE, NEUTRAL, UNDERPERFORM",
+  "target_price": number or null,
+  "current_price": number or null,
+  "analyst": "analyst name(s)",
+  "report_date": "YYYY-MM-DD or null",
+  "tags": "3-5 relevant comma-separated tags",
+  "positives": ["point 1", "point 2", "point 3"],
+  "negatives": ["risk 1", "risk 2"],
+  "notes": "2-3 sentence executive summary of the report"
+}}
+
+Rules:
+- broker_house MUST be one of the provided list; pick the closest match or "Other"
+- category MUST be one of the provided list
+- call_type MUST be one of the provided values (uppercase)
+- For prices, extract numbers only (no ₹ or Rs symbols)
+- positives: key investment arguments / why to buy (3-6 bullet points)
+- negatives: key risks / concerns (2-4 bullet points)
+- Return ONLY valid JSON, no markdown, no explanation
+
+Report text:
+---
+{pdf_text}
+---"""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        import json as _json
+        parsed = _json.loads(raw.strip())
+        return parsed
+    except Exception as e:
+        return {"_error": str(e)}
+
+
 def admin_research():
     st.markdown('<div class="section-header">📄 Research Reports</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Upload broker PDFs — displayed inline, no download for members</div>', unsafe_allow_html=True)
@@ -1011,9 +1173,10 @@ def admin_research():
         st.markdown("##### Upload Broker Research PDF")
         st.markdown("""
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#9d8ab5;line-height:1.8">
-        <b style="color:#c084fc">How it works:</b> Upload a PDF from any broker house. It is stored in the database
-        and rendered page-by-page using an embedded viewer. Members cannot download, print or right-click save the PDF.
-        Max recommended PDF size: <b style="color:#ffd700">10 MB</b>.
+        <b style="color:#c084fc">✨ AI Auto-Fill:</b> Upload a PDF and click <b style="color:#ffd700">Extract & Auto-Fill</b> —
+        Claude AI will read the report and fill all fields including a summary, key positives and negatives.
+        You can edit any field before saving. Max PDF size: <b style="color:#ffd700">15 MB</b>.
+        <br><b style="color:#ff9999">Requires:</b> Set <code>ANTHROPIC_API_KEY</code> in Streamlit Secrets (App Settings → Secrets).
         </div>
         """, unsafe_allow_html=True)
 
@@ -1022,41 +1185,154 @@ def admin_research():
             help="PDF will be stored securely and shown inline to members"
         )
 
+        # ── Auto-extract button (outside form so it can update session state) ──
+        ai_data = st.session_state.get("_ai_prefill", {})
+
+        if uploaded_pdf is not None:
+            col_btn, col_status = st.columns([2, 5])
+            if col_btn.button("✨ Extract & Auto-Fill", type="primary", use_container_width=True):
+                with st.spinner("📖 Reading PDF text..."):
+                    pdf_bytes_preview = uploaded_pdf.read()
+                    uploaded_pdf.seek(0)  # reset for later save
+                    pdf_text = _extract_pdf_text(pdf_bytes_preview)
+
+                if not pdf_text:
+                    st.warning("⚠️ Could not extract text from this PDF (may be scanned image). Fill fields manually.")
+                else:
+                    with st.spinner("🤖 Claude is analysing the report..."):
+                        parsed = _parse_report_with_claude(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
+
+                    if parsed.get("_error") == "no_api_key":
+                        st.error("❌ ANTHROPIC_API_KEY not set. Add it in Streamlit App Settings → Secrets as: ANTHROPIC_API_KEY = \"sk-ant-...\"")
+                    elif parsed.get("_error"):
+                        st.warning(f"⚠️ AI parsing failed: {parsed['_error']}. Fill fields manually.")
+                    else:
+                        st.session_state["_ai_prefill"] = parsed
+                        ai_data = parsed
+                        st.success("✅ Fields auto-filled from PDF! Review and edit before saving.")
+                        st.rerun()
+
+        # ── Show extracted positives/negatives as a preview card ─────────
+        if ai_data and not ai_data.get("_error"):
+            pos = ai_data.get("positives") or []
+            neg = ai_data.get("negatives") or []
+            if pos or neg:
+                st.markdown("""<div style="background:#0c0a18;border:1px solid #2d1f4e;border-radius:12px;padding:18px;margin-bottom:16px">
+                <div style="font-size:12px;color:#445566;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;font-weight:700">📊 AI-Extracted Summary</div>""", unsafe_allow_html=True)
+                if pos:
+                    st.markdown('<div style="font-size:11px;color:#00ffb4;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px">✅ Key Positives</div>', unsafe_allow_html=True)
+                    for p in pos:
+                        st.markdown(f'<div style="font-size:13px;color:#c0d0e0;padding:3px 0 3px 12px;border-left:2px solid #00ffb4">• {p}</div>', unsafe_allow_html=True)
+                if neg:
+                    st.markdown('<div style="font-size:11px;color:#ff6b6b;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin:12px 0 6px">⚠️ Key Risks / Negatives</div>', unsafe_allow_html=True)
+                    for n in neg:
+                        st.markdown(f'<div style="font-size:13px;color:#c0d0e0;padding:3px 0 3px 12px;border-left:2px solid #ff6b6b">• {n}</div>', unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Helper: safe index lookup for selectboxes ─────────────────────
+        def _idx(lst, val, default=0):
+            try: return lst.index(val) if val in lst else default
+            except: return default
+
+        # ── Form with AI pre-filled defaults ─────────────────────────────
+        CALL_TYPES = ["BUY","SELL","HOLD","ACCUMULATE","REDUCE","NEUTRAL","UNDERPERFORM"]
+        ai_title    = ai_data.get("title", "")
+        ai_broker   = ai_data.get("broker_house", BROKER_HOUSES[0])
+        ai_cat      = ai_data.get("category", REPORT_CATEGORIES[0])
+        ai_symbol   = ai_data.get("symbol", "")
+        ai_sector   = ai_data.get("sector", "")
+        ai_call     = ai_data.get("call_type", "BUY")
+        ai_target   = float(ai_data.get("target_price") or 0)
+        ai_cmp      = float(ai_data.get("current_price") or 0)
+        ai_analyst  = ai_data.get("analyst", "")
+        ai_tags     = ai_data.get("tags", "")
+        ai_notes    = ai_data.get("notes", "")
+        # Build positives/negatives into notes if notes is short
+        pos_text = ""
+        neg_text = ""
+        pos_list = ai_data.get("positives") or []
+        neg_list = ai_data.get("negatives") or []
+        if pos_list:
+            pos_text = "\n".join(f"• {p}" for p in pos_list)
+        if neg_list:
+            neg_text = "\n".join(f"• {n}" for n in neg_list)
+
+        # Parse report_date safely
+        ai_date = date.today()
+        try:
+            if ai_data.get("report_date"):
+                from datetime import datetime as _dt
+                ai_date = _dt.strptime(ai_data["report_date"], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
         with st.form("report_form"):
             c1, c2, c3 = st.columns(3)
             with c1:
-                title     = st.text_input("Report Title *")
-                broker    = st.selectbox("Broker House *", BROKER_HOUSES)
-                category  = st.selectbox("Category *", REPORT_CATEGORIES)
-                symbol    = st.text_input("Stock Symbol", placeholder="RELIANCE, NIFTY...")
-                sector    = st.text_input("Sector", placeholder="Banking, IT, Auto...")
+                title     = st.text_input("Report Title *",        value=ai_title)
+                broker    = st.selectbox("Broker House *",          BROKER_HOUSES, index=_idx(BROKER_HOUSES, ai_broker))
+                category  = st.selectbox("Category *",             REPORT_CATEGORIES, index=_idx(REPORT_CATEGORIES, ai_cat))
+                symbol    = st.text_input("Stock Symbol",           value=ai_symbol, placeholder="RELIANCE, NIFTY...")
+                sector    = st.text_input("Sector",                 value=ai_sector, placeholder="Banking, IT, Auto...")
             with c2:
-                call_type     = st.selectbox("Rating / Call", ["BUY","SELL","HOLD","ACCUMULATE","REDUCE","NEUTRAL","UNDERPERFORM"])
-                target_price  = st.number_input("Target Price ₹", min_value=0.0, step=0.5)
-                current_price = st.number_input("Current Price ₹", min_value=0.0, step=0.5)
-                analyst       = st.text_input("Analyst Name")
-                report_date   = st.date_input("Report Date", value=date.today())
+                call_type     = st.selectbox("Rating / Call",       CALL_TYPES, index=_idx(CALL_TYPES, ai_call))
+                target_price  = st.number_input("Target Price ₹",  min_value=0.0, step=0.5, value=ai_target)
+                current_price = st.number_input("Current Price ₹", min_value=0.0, step=0.5, value=ai_cmp)
+                analyst       = st.text_input("Analyst Name",      value=ai_analyst)
+                report_date   = st.date_input("Report Date",       value=ai_date)
             with c3:
                 upside_pct = round(((target_price - current_price) / current_price * 100), 2) if current_price and target_price else None
                 if upside_pct is not None:
                     color = "#00ffb4" if upside_pct >= 0 else "#ff6b6b"
                     st.markdown(f'<div style="margin-top:28px;background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:16px;text-align:center"><div style="font-size:11px;color:#445566;text-transform:uppercase">Upside / Downside</div><div style="font-size:28px;font-weight:800;color:{color};margin-top:6px">{upside_pct:+.1f}%</div></div>', unsafe_allow_html=True)
-                tags       = st.text_input("Tags", placeholder="largecap, Q3, results...")
+                tags       = st.text_input("Tags", value=ai_tags, placeholder="largecap, Q3, results...")
                 visible_to = st.selectbox("Visible To", ["all","equity","options"])
-            notes = st.text_area("Notes / Summary (optional)", height=80,
-                placeholder="Brief context about this report shown above the PDF viewer...")
 
-            if st.form_submit_button("Upload & Save Report →", use_container_width=True):
+            notes = st.text_area("Executive Summary (AI-generated, editable)", height=100,
+                value=ai_notes, placeholder="Brief context shown above the PDF viewer...")
+
+            if pos_text or neg_text:
+                st.markdown('<div style="font-size:11px;color:#445566;margin-bottom:4px;margin-top:8px">Key Positives (editable)</div>', unsafe_allow_html=True)
+                positives_text = st.text_area("", value=pos_text, height=110, key="pos_text_field",
+                    placeholder="• Key reason 1\n• Key reason 2", label_visibility="collapsed")
+                st.markdown('<div style="font-size:11px;color:#445566;margin-bottom:4px;margin-top:8px">Key Risks / Negatives (editable)</div>', unsafe_allow_html=True)
+                negatives_text = st.text_area("", value=neg_text, height=80, key="neg_text_field",
+                    placeholder="• Risk 1\n• Risk 2", label_visibility="collapsed")
+            else:
+                positives_text = st.text_area("Key Positives (optional)", height=90,
+                    placeholder="• Strong revenue growth\n• Market leader position")
+                negatives_text = st.text_area("Key Risks / Negatives (optional)", height=70,
+                    placeholder="• Regulatory risk\n• Margin pressure")
+
+            save_col, clear_col = st.columns([4, 1])
+            submitted = save_col.form_submit_button("💾 Upload & Save Report →", use_container_width=True)
+            cleared   = clear_col.form_submit_button("🔄 Clear AI Fill", use_container_width=True)
+
+            if cleared:
+                st.session_state.pop("_ai_prefill", None)
+                st.rerun()
+
+            if submitted:
                 if not title or not broker:
                     st.error("Title and broker house are required.")
                 elif uploaded_pdf is None:
-                    st.error("Please select a PDF file to upload.")
+                    st.error("Please select and upload a PDF file.")
                 else:
+                    uploaded_pdf.seek(0)
                     pdf_bytes = uploaded_pdf.read()
                     size_mb   = len(pdf_bytes) / (1024 * 1024)
                     if size_mb > 15:
                         st.error(f"PDF is {size_mb:.1f} MB — please keep under 15 MB.")
                     else:
+                        # Combine notes + positives + negatives into the notes field
+                        full_notes_parts = []
+                        if notes.strip(): full_notes_parts.append(notes.strip())
+                        if positives_text.strip():
+                            full_notes_parts.append("KEY POSITIVES:\n" + positives_text.strip())
+                        if negatives_text.strip():
+                            full_notes_parts.append("KEY RISKS:\n" + negatives_text.strip())
+                        full_notes = "\n\n".join(full_notes_parts)
+
                         conn = get_conn()
                         conn.execute("""INSERT INTO research_reports
                             (title, broker_house, category, symbol, call_type,
@@ -1067,9 +1343,10 @@ def admin_research():
                             (title, broker, category,
                              symbol.upper().strip() if symbol else None,
                              call_type, target_price or None, current_price or None,
-                             upside_pct, analyst, str(report_date), sector, tags, notes,
-                             visible_to, pdf_bytes, uploaded_pdf.name))
+                             upside_pct, analyst, str(report_date), sector, tags,
+                             full_notes, visible_to, pdf_bytes, uploaded_pdf.name))
                         conn.commit(); conn.close()
+                        st.session_state.pop("_ai_prefill", None)
                         st.success(f"✅ '{title}' uploaded ({size_mb:.2f} MB) — available to members immediately.")
 
     with tab2:
