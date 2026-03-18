@@ -1087,43 +1087,116 @@ def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
         return ""
 
 
+def _get_api_key() -> str:
+    """Safely retrieve XAI_API_KEY from Streamlit secrets or environment."""
+    import os
+    # Try all key name variants in secrets
+    for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
+        try:
+            v = st.secrets[_k]
+            if v and str(v).strip(): return str(v).strip()
+        except Exception:
+            pass
+    # Try .get() on the whole secrets dict
+    try:
+        for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
+            v = st.secrets.get(_k)
+            if v and str(v).strip(): return str(v).strip()
+    except Exception:
+        pass
+    # Try environment variables
+    for _k in ("XAI_API_KEY", "GROK_API_KEY"):
+        v = os.environ.get(_k, "")
+        if v.strip(): return v.strip()
+    return ""
+
+
+def _call_xai(api_key: str, prompt: str) -> str:
+    """
+    Call xAI API using the requests library.
+    Tries grok-2 first (most available), then falls back to other models.
+    Returns the raw response text or raises an exception with full details.
+    """
+    import json as _json
+
+    # xAI model names — try in order of availability
+    models_to_try = ["grok-2", "grok-2-1212", "grok-beta", "grok-1"]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    last_error = ""
+    for model in models_to_try:
+        try:
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1500,
+                "temperature": 0.1,
+            }
+            resp = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=45,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip(), model
+            elif resp.status_code == 404:
+                # Model not found — try next
+                last_error = f"Model {model} not found (404)"
+                continue
+            elif resp.status_code == 403:
+                # Auth error — no point trying other models
+                try:
+                    err_body = resp.json()
+                    err_msg = err_body.get("error", {}).get("message", resp.text[:200])
+                except Exception:
+                    err_msg = resp.text[:200]
+                raise Exception(f"403 Forbidden — API key invalid or no access. Detail: {err_msg}")
+            elif resp.status_code == 401:
+                raise Exception(f"401 Unauthorized — check your XAI_API_KEY in Streamlit Secrets")
+            else:
+                try:
+                    err_body = resp.json()
+                    err_msg = err_body.get("error", {}).get("message", resp.text[:300])
+                except Exception:
+                    err_msg = resp.text[:300]
+                last_error = f"HTTP {resp.status_code}: {err_msg}"
+                continue
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout on model {model}"
+            continue
+        except Exception as e:
+            if "403" in str(e) or "401" in str(e):
+                raise  # Re-raise auth errors immediately
+            last_error = str(e)
+            continue
+
+    raise Exception(f"All models failed. Last error: {last_error}")
+
+
 def _parse_report_with_grok(pdf_text: str, broker_houses: list, categories: list) -> dict:
     """
     Send extracted PDF text to Grok (xAI) and get structured JSON back.
-    Uses the OpenAI-compatible API endpoint at https://api.x.ai/v1
-    Returns a dict with all form fields pre-filled.
-    Falls back to error dict on any failure.
+    Uses the OpenAI-compatible API at https://api.x.ai/v1
+    Returns a dict with all form fields pre-filled, or {"_error": "..."}.
     """
-    try:
-        import os, json as _json
+    import json as _json
 
-        # ── Get API key — try every method, never crash ───────────────
-        api_key = None
-        for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
-            try:
-                api_key = st.secrets[_k]
-                if api_key: break
-            except Exception:
-                pass
-        if not api_key:
-            try:
-                api_key = (st.secrets.get("XAI_API_KEY") or
-                           st.secrets.get("xai_api_key") or
-                           st.secrets.get("GROK_API_KEY") or
-                           st.secrets.get("grok_api_key"))
-            except Exception:
-                pass
-        if not api_key:
-            api_key = (os.environ.get("XAI_API_KEY") or
-                       os.environ.get("GROK_API_KEY") or "")
-        if not api_key:
-            return {"_error": "no_api_key"}
+    # ── Get API key ───────────────────────────────────────────────────
+    api_key = _get_api_key()
+    if not api_key:
+        return {"_error": "no_api_key"}
 
-        # ── Build prompt ──────────────────────────────────────────────
-        broker_list = ", ".join(broker_houses)
-        cat_list    = ", ".join(categories)
+    # ── Build prompt ──────────────────────────────────────────────────
+    broker_list = ", ".join(broker_houses)
+    cat_list    = ", ".join(categories)
 
-        prompt = f"""You are a financial document analyst specialising in Indian equity research reports.
+    prompt = f"""You are a financial document analyst specialising in Indian equity research reports.
 Extract structured data from the broker research report text below.
 
 Return a JSON object with EXACTLY these keys (use null for anything not found):
@@ -1158,28 +1231,8 @@ Report text:
 {pdf_text[:10000]}
 ---"""
 
-        # ── Call Grok API (OpenAI-compatible) ─────────────────────────
-        import urllib.request
-        payload = _json.dumps({
-            "model": "grok-3-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "temperature": 0.1,
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            "https://api.x.ai/v1/chat/completions",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read().decode("utf-8"))
-
-        raw = data["choices"][0]["message"]["content"].strip()
+    try:
+        raw, model_used = _call_xai(api_key, prompt)
 
         # Strip markdown code fences if present
         if raw.startswith("```"):
@@ -1189,6 +1242,7 @@ Report text:
         raw = raw.strip()
 
         parsed = _json.loads(raw)
+        parsed["_model_used"] = model_used  # store for display
         return parsed
 
     except Exception as e:
@@ -1210,6 +1264,14 @@ def admin_research():
         <br><b style="color:#ff9999">Requires:</b> Set <code>XAI_API_KEY</code> in Streamlit Secrets (App Settings → Secrets).
         </div>
         """, unsafe_allow_html=True)
+
+        # ── API Key status check ──────────────────────────────────────
+        _key_preview = _get_api_key()
+        if _key_preview:
+            _masked = _key_preview[:8] + "..." + _key_preview[-4:]
+            st.markdown(f'<div style="font-size:11px;color:#00ffb4;margin-bottom:8px">🔑 API key detected: <code>{_masked}</code></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="font-size:11px;color:#ff6b6b;margin-bottom:8px">🔑 No API key found — set <code>XAI_API_KEY</code> in Streamlit Secrets to enable Auto-Fill</div>', unsafe_allow_html=True)
 
         uploaded_pdf = st.file_uploader(
             "Select PDF file *", type=["pdf"],
@@ -1234,15 +1296,44 @@ def admin_research():
                         parsed = _parse_report_with_grok(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
 
                     if parsed.get("_error") == "no_api_key":
-                        st.error("❌ XAI_API_KEY not configured.")
-                        st.code('XAI_API_KEY = "xai-..."', language="toml")
-                        st.caption("Go to: Streamlit Cloud → Your App → Settings (⋮) → Secrets → paste the above with your real xAI key → Save changes")
+                        st.error("❌ XAI_API_KEY not found in Streamlit Secrets.")
+                        st.markdown("""
+                        <div style="background:#0a0715;border:1px solid #ff6b6b44;border-radius:10px;padding:14px;font-size:13px">
+                        <b style="color:#ffd700">Steps to fix:</b><br>
+                        1. Go to <b>console.x.ai</b> → Sign in → API Keys → Create key<br>
+                        2. In Streamlit Cloud: your app → <b>⋮ menu → Settings → Secrets</b><br>
+                        3. Paste this (replace with your real key):
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
+                    elif parsed.get("_error") and ("403" in parsed["_error"] or "Forbidden" in parsed["_error"]):
+                        st.error("❌ 403 Forbidden — API key is set but rejected by xAI.")
+                        st.markdown("""
+                        <div style="background:#0a0715;border:1px solid #ff6b6b44;border-radius:10px;padding:14px;font-size:13px;color:#c0d0e0">
+                        <b style="color:#ffd700">Common causes:</b><br>
+                        • Key was pasted with extra spaces or quotes — check Secrets<br>
+                        • Key doesn't have access to the model — check your xAI plan<br>
+                        • Key may have been revoked — generate a new one at <b>console.x.ai</b><br><br>
+                        <b style="color:#ffd700">Correct Secrets format (no extra quotes around the value):</b>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
+                        with st.expander("🔍 Full error detail"):
+                            st.code(parsed["_error"])
+                    elif parsed.get("_error") and ("401" in parsed["_error"] or "Unauthorized" in parsed["_error"]):
+                        st.error("❌ 401 Unauthorized — API key is invalid.")
+                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
+                        st.caption("Your key must start with xai-. Get one from console.x.ai → API Keys.")
                     elif parsed.get("_error"):
-                        st.warning(f"⚠️ AI parsing failed: {parsed['_error']}. Fill fields manually.")
+                        st.warning(f"⚠️ AI parsing failed: {parsed['_error']}")
+                        st.caption("You can still fill the fields manually below.")
+                        with st.expander("🔍 Full error detail"):
+                            st.code(parsed["_error"])
                     else:
+                        model_msg = f" (model: {parsed.get('_model_used', 'grok')})" if parsed.get("_model_used") else ""
                         st.session_state["_ai_prefill"] = parsed
                         ai_data = parsed
-                        st.success("✅ Fields auto-filled from PDF! Review and edit before saving.")
+                        st.success(f"✅ Fields auto-filled from PDF{model_msg}! Review and edit before saving.")
                         st.rerun()
 
         # ── Show extracted positives/negatives as a preview card ─────────
