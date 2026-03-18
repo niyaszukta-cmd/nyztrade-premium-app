@@ -1087,79 +1087,110 @@ def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
         return ""
 
 
-def _parse_report_with_claude(pdf_text: str, broker_houses: list, categories: list) -> dict:
+def _parse_report_with_grok(pdf_text: str, broker_houses: list, categories: list) -> dict:
     """
-    Send extracted PDF text to Claude and get structured JSON back.
+    Send extracted PDF text to Grok (xAI) and get structured JSON back.
+    Uses the OpenAI-compatible API endpoint at https://api.x.ai/v1
     Returns a dict with all form fields pre-filled.
-    Falls back to empty dict on any error.
+    Falls back to error dict on any failure.
     """
     try:
-        # Try to get API key from Streamlit secrets or environment
+        import os, json as _json
+
+        # ── Get API key — try every method, never crash ───────────────
         api_key = None
-        try:
-            api_key = st.secrets.get("ANTHROPIC_API_KEY") or st.secrets.get("anthropic_api_key")
-        except Exception:
-            pass
+        for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
+            try:
+                api_key = st.secrets[_k]
+                if api_key: break
+            except Exception:
+                pass
         if not api_key:
-            import os
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key or api_key.startswith("YOUR_"):
+            try:
+                api_key = (st.secrets.get("XAI_API_KEY") or
+                           st.secrets.get("xai_api_key") or
+                           st.secrets.get("GROK_API_KEY") or
+                           st.secrets.get("grok_api_key"))
+            except Exception:
+                pass
+        if not api_key:
+            api_key = (os.environ.get("XAI_API_KEY") or
+                       os.environ.get("GROK_API_KEY") or "")
+        if not api_key:
             return {"_error": "no_api_key"}
 
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-
+        # ── Build prompt ──────────────────────────────────────────────
         broker_list = ", ".join(broker_houses)
         cat_list    = ", ".join(categories)
 
-        prompt = f"""You are a financial document analyst. Extract structured data from this broker research report text.
+        prompt = f"""You are a financial document analyst specialising in Indian equity research reports.
+Extract structured data from the broker research report text below.
 
 Return a JSON object with EXACTLY these keys (use null for anything not found):
 {{
-  "title": "exact report title or descriptive title",
+  "title": "exact or descriptive report title",
   "broker_house": "one of: {broker_list}",
   "category": "one of: {cat_list}",
-  "symbol": "NSE/BSE stock symbol e.g. RELIANCE",
-  "sector": "sector e.g. Banking, IT, Auto, FMCG",
+  "symbol": "NSE/BSE ticker symbol e.g. RELIANCE",
+  "sector": "sector e.g. Banking, IT, Auto, FMCG, Pharma",
   "call_type": "one of: BUY, SELL, HOLD, ACCUMULATE, REDUCE, NEUTRAL, UNDERPERFORM",
   "target_price": number or null,
   "current_price": number or null,
-  "analyst": "analyst name(s)",
+  "analyst": "analyst name(s) as string",
   "report_date": "YYYY-MM-DD or null",
-  "tags": "3-5 relevant comma-separated tags",
-  "positives": ["point 1", "point 2", "point 3"],
-  "negatives": ["risk 1", "risk 2"],
-  "notes": "2-3 sentence executive summary of the report"
+  "tags": "3-5 relevant comma-separated lowercase tags",
+  "positives": ["key positive 1", "key positive 2", "key positive 3"],
+  "negatives": ["key risk 1", "key risk 2"],
+  "notes": "2-3 sentence executive summary"
 }}
 
 Rules:
-- broker_house MUST be one of the provided list; pick the closest match or "Other"
-- category MUST be one of the provided list
-- call_type MUST be one of the provided values (uppercase)
-- For prices, extract numbers only (no ₹ or Rs symbols)
-- positives: key investment arguments / why to buy (3-6 bullet points)
-- negatives: key risks / concerns (2-4 bullet points)
-- Return ONLY valid JSON, no markdown, no explanation
+- broker_house MUST exactly match one from the provided list; use "Other" if none match
+- category MUST exactly match one from the provided list
+- call_type MUST be one of the uppercase values listed
+- target_price and current_price: numbers only, no currency symbols
+- positives: 3-6 key investment arguments or growth catalysts
+- negatives: 2-4 key risks, concerns or headwinds
+- Return ONLY valid JSON — no markdown fences, no explanation, no extra text
 
 Report text:
 ---
-{pdf_text}
+{pdf_text[:10000]}
 ---"""
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}]
+        # ── Call Grok API (OpenAI-compatible) ─────────────────────────
+        import urllib.request
+        payload = _json.dumps({
+            "model": "grok-3-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1024,
+            "temperature": 0.1,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.x.ai/v1/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
         )
-        raw = response.content[0].text.strip()
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+
+        raw = data["choices"][0]["message"]["content"].strip()
+
         # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        import json as _json
-        parsed = _json.loads(raw.strip())
+        raw = raw.strip()
+
+        parsed = _json.loads(raw)
         return parsed
+
     except Exception as e:
         return {"_error": str(e)}
 
@@ -1174,9 +1205,9 @@ def admin_research():
         st.markdown("""
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#9d8ab5;line-height:1.8">
         <b style="color:#c084fc">✨ AI Auto-Fill:</b> Upload a PDF and click <b style="color:#ffd700">Extract & Auto-Fill</b> —
-        Claude AI will read the report and fill all fields including a summary, key positives and negatives.
+        Grok AI (xAI) will read the report and fill all fields including a summary, key positives and negatives.
         You can edit any field before saving. Max PDF size: <b style="color:#ffd700">15 MB</b>.
-        <br><b style="color:#ff9999">Requires:</b> Set <code>ANTHROPIC_API_KEY</code> in Streamlit Secrets (App Settings → Secrets).
+        <br><b style="color:#ff9999">Requires:</b> Set <code>XAI_API_KEY</code> in Streamlit Secrets (App Settings → Secrets).
         </div>
         """, unsafe_allow_html=True)
 
@@ -1199,11 +1230,13 @@ def admin_research():
                 if not pdf_text:
                     st.warning("⚠️ Could not extract text from this PDF (may be scanned image). Fill fields manually.")
                 else:
-                    with st.spinner("🤖 Claude is analysing the report..."):
-                        parsed = _parse_report_with_claude(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
+                    with st.spinner("🤖 Grok is analysing the report..."):
+                        parsed = _parse_report_with_grok(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
 
                     if parsed.get("_error") == "no_api_key":
-                        st.error("❌ ANTHROPIC_API_KEY not set. Add it in Streamlit App Settings → Secrets as: ANTHROPIC_API_KEY = \"sk-ant-...\"")
+                        st.error("❌ XAI_API_KEY not configured.")
+                        st.code('XAI_API_KEY = "xai-..."', language="toml")
+                        st.caption("Go to: Streamlit Cloud → Your App → Settings (⋮) → Secrets → paste the above with your real xAI key → Save changes")
                     elif parsed.get("_error"):
                         st.warning(f"⚠️ AI parsing failed: {parsed['_error']}. Fill fields manually.")
                     else:
