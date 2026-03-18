@@ -15,8 +15,9 @@ from datetime import date, timedelta, datetime
 
 import streamlit as st
 
-# xAI Grok API base (OpenAI-compatible)
-XAI_API_BASE = "https://api.x.ai/v1"
+# Groq API base
+GROQ_API_BASE = "https://api.groq.com/openai/v1"
+GROQ_API_KEY  = "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"
 
 # ══════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -1067,67 +1068,30 @@ def admin_login():
 # ══════════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════════
-# xAI GROK API LAYER  (shared by PDF auto-fill — same engine as HumanizeAI)
+# GROQ API LAYER  (hardcoded key — powers PDF auto-fill)
 # ══════════════════════════════════════════════════════════════════════
 
-# xAI model fallback order — tries in sequence until one responds 200
-_XAI_MODELS_FALLBACK = ["grok-2", "grok-2-1212", "grok-beta", "grok-1"]
-
-# Human-readable model labels (mirrors HumanizeAI GROK_MODELS)
-GROK_MODELS = {
-    "grok-2":       "Grok 2 · Best quality",
-    "grok-2-1212":  "Grok 2 (Dec) · Stable",
-    "grok-beta":    "Grok Beta · Latest",
-    "grok-1":       "Grok 1 · Fast",
+# Available Groq models — same as HumanizeAI app
+GROQ_MODELS = {
+    "llama-3.3-70b-versatile": "Llama 3.3 70B · Best quality",
+    "llama-3.1-8b-instant":    "Llama 3.1 8B · Fastest",
+    "mixtral-8x7b-32768":      "Mixtral 8x7B · Long context",
+    "gemma2-9b-it":            "Gemma 2 9B · Balanced",
 }
 
-
-def _resolve_model(requested: str) -> list:
-    """Return ordered list of models to try, starting with requested."""
-    fallback = [m for m in _XAI_MODELS_FALLBACK if m != requested]
-    return [requested] + fallback
+# Default model for PDF parsing (best quality)
+_GROQ_PDF_MODEL = "llama-3.3-70b-versatile"
 
 
-def _get_api_key() -> str:
-    """Safely retrieve XAI/Grok API key — tries secrets, then env. Never crashes."""
-    # Try all key name variants in Streamlit secrets
-    for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
-        try:
-            v = st.secrets[_k]
-            if v and str(v).strip(): return str(v).strip()
-        except Exception:
-            pass
-    # Try .get() on the secrets dict
-    try:
-        for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
-            v = st.secrets.get(_k)
-            if v and str(v).strip(): return str(v).strip()
-    except Exception:
-        pass
-    # Try environment variables
-    for _k in ("XAI_API_KEY", "GROK_API_KEY"):
-        v = os.environ.get(_k, "")
-        if v.strip(): return v.strip()
-    return ""
-
-
-def _get_xai_key(user_key: str = "", platform_key: str = "") -> str:
-    """Resolve best available xAI key: user → platform → secrets → env."""
-    if user_key and user_key.strip(): return user_key.strip()
-    if platform_key and platform_key.strip(): return platform_key.strip()
-    return _get_api_key()
-
-
-def call_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
+def call_groq(model: str, system_prompt: str, user_prompt: str,
               max_tokens: int = 2048, stream: bool = False):
     """
-    Call xAI Grok API (OpenAI-compatible).
-    Tries requested model first, then falls back through _XAI_MODELS_FALLBACK.
+    Call Groq API using the hardcoded key.
     Returns a requests.Response object on success.
-    Raises Exception with descriptive message on auth errors.
+    Raises Exception with descriptive message on any error.
     """
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type":  "application/json",
     }
     payload = {
@@ -1140,62 +1104,31 @@ def call_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
         "temperature": 0.7,
         "stream":      stream,
     }
-
-    models_to_try = _resolve_model(model)
-    last_error    = ""
-
-    for m in models_to_try:
-        payload["model"] = m
+    resp = requests.post(
+        f"{GROQ_API_BASE}/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=120,
+        stream=stream,
+    )
+    if resp.status_code == 200:
+        return resp
+    elif resp.status_code == 429:
+        raise Exception("Rate limit exceeded (429). Wait a moment and try again.")
+    elif resp.status_code == 401:
+        raise Exception("401 Unauthorized — Groq API key is invalid.")
+    else:
         try:
-            resp = requests.post(
-                f"{XAI_API_BASE}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=120,
-                stream=stream,
-            )
-            if resp.status_code == 200:
-                return resp
-            elif resp.status_code == 404:
-                last_error = f"Model '{m}' not found (404)"
-                continue
-            elif resp.status_code in (401, 403):
-                try:
-                    body   = resp.json()
-                    detail = body.get("error", {}).get("message", resp.text[:300])
-                except Exception:
-                    detail = resp.text[:300]
-                raise Exception(
-                    f"HTTP {resp.status_code} — API key invalid or no access.\n"
-                    f"Detail: {detail}\n"
-                    f"Check XAI_API_KEY in Streamlit Secrets. Get a key at console.x.ai → API Keys."
-                )
-            elif resp.status_code == 429:
-                raise Exception("Rate limit exceeded (429). Wait a moment and try again.")
-            else:
-                try:
-                    body   = resp.json()
-                    detail = body.get("error", {}).get("message", resp.text[:300])
-                except Exception:
-                    detail = resp.text[:300]
-                last_error = f"HTTP {resp.status_code}: {detail}"
-                continue
-        except requests.exceptions.Timeout:
-            last_error = f"Timeout on model {m}"
-            continue
-        except Exception as e:
-            if "401" in str(e) or "403" in str(e) or "API key" in str(e):
-                raise
-            last_error = str(e)
-            continue
-
-    raise Exception(f"All Grok models failed. Last error: {last_error}")
+            detail = resp.json().get("error", {}).get("message", resp.text[:300])
+        except Exception:
+            detail = resp.text[:300]
+        raise Exception(f"Groq API error {resp.status_code}: {detail}")
 
 
-def stream_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
+def stream_groq(model: str, system_prompt: str, user_prompt: str,
                 max_tokens: int = 2048):
-    """Stream response tokens from xAI Grok, yielding text chunks."""
-    resp = call_grok(api_key, model, system_prompt, user_prompt, max_tokens, stream=True)
+    """Stream response tokens from Groq, yielding text chunks."""
+    resp = call_groq(model, system_prompt, user_prompt, max_tokens, stream=True)
     for line in resp.iter_lines():
         if line:
             decoded = line.decode("utf-8")
@@ -1211,7 +1144,7 @@ def stream_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
 
 
 # ══════════════════════════════════════════════════════════════════════
-# PDF AUTO-FILL HELPERS  (uses call_grok above)
+# PDF AUTO-FILL HELPERS  (uses Groq above)
 # ══════════════════════════════════════════════════════════════════════
 
 def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
@@ -1234,47 +1167,17 @@ def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
         return ""
 
 
-def _call_xai(api_key: str, prompt: str):
-    """
-    Single-turn xAI call for PDF parsing (no system prompt needed).
-    Reuses call_grok with an empty system prompt and returns (text, model_used).
-    """
-    # Use a neutral system prompt for JSON extraction tasks
-    sys_prompt = "You are a financial document analyst. Return only valid JSON as instructed."
-    # Try each model; call_grok handles fallback internally
-    models_to_try = _XAI_MODELS_FALLBACK[:]
-    last_error    = ""
-    for m in models_to_try:
-        try:
-            resp      = call_grok(api_key, m, sys_prompt, prompt,
-                                  max_tokens=1500, stream=False)
-            raw       = resp.json()["choices"][0]["message"]["content"].strip()
-            return raw, m
-        except Exception as e:
-            err = str(e)
-            if "401" in err or "403" in err or "API key" in err:
-                raise
-            last_error = err
-            continue
-    raise Exception(f"All models failed. Last error: {last_error}")
-
-
 def _parse_report_with_grok(pdf_text: str, broker_houses: list, categories: list) -> dict:
     """
-    Send extracted PDF text to xAI Grok and get structured JSON back.
+    Send extracted PDF text to Groq and get structured JSON back.
     Returns a dict with all form fields pre-filled, or {"_error": "..."}.
     """
-    # ── Get API key ────────────────────────────────────────────────────
-    api_key = _get_api_key()
-    if not api_key:
-        return {"_error": "no_api_key"}
-
-    # ── Build prompt ───────────────────────────────────────────────────
     broker_list = ", ".join(broker_houses)
     cat_list    = ", ".join(categories)
 
-    prompt = f"""You are a financial document analyst specialising in Indian equity research reports.
-Extract structured data from the broker research report text below.
+    system_prompt = "You are a financial document analyst specialising in Indian equity research reports. Return only valid JSON as instructed. No markdown, no explanation."
+
+    user_prompt = f"""Extract structured data from this broker research report.
 
 Return a JSON object with EXACTLY these keys (use null for anything not found):
 {{
@@ -1309,7 +1212,8 @@ Report text:
 ---"""
 
     try:
-        raw, model_used = _call_xai(api_key, prompt)
+        resp = call_groq(_GROQ_PDF_MODEL, system_prompt, user_prompt, max_tokens=1500)
+        raw  = resp.json()["choices"][0]["message"]["content"].strip()
 
         # Strip markdown code fences if present
         if raw.startswith("```"):
@@ -1319,7 +1223,7 @@ Report text:
         raw = raw.strip()
 
         parsed = json.loads(raw)
-        parsed["_model_used"] = model_used
+        parsed["_model_used"] = _GROQ_PDF_MODEL
         return parsed
 
     except Exception as e:
@@ -1335,19 +1239,14 @@ def admin_research():
         st.markdown("""
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#9d8ab5;line-height:1.8">
         <b style="color:#c084fc">✨ AI Auto-Fill:</b> Upload a PDF and click <b style="color:#ffd700">Extract & Auto-Fill</b> —
-        Grok AI (xAI) will read the report and fill all fields including a summary, key positives and negatives.
+        Llama 3.3 70B (via Groq) will read the report and fill all fields including a summary, key positives and negatives.
         You can edit any field before saving. Max PDF size: <b style="color:#ffd700">15 MB</b>.
-        <br><b style="color:#ff9999">Requires:</b> Set <code>XAI_API_KEY</code> in Streamlit Secrets (App Settings → Secrets).
+        <br><b style="color:#00ffb4">✅ Ready to use — AI is pre-configured. No API key setup required.</b>
         </div>
         """, unsafe_allow_html=True)
 
-        # ── API Key status check ──────────────────────────────────────
-        _key_preview = _get_api_key()
-        if _key_preview:
-            _masked = _key_preview[:8] + "..." + _key_preview[-4:]
-            st.markdown(f'<div style="font-size:11px;color:#00ffb4;margin-bottom:8px">🔑 API key detected: <code>{_masked}</code></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="font-size:11px;color:#ff6b6b;margin-bottom:8px">🔑 No API key found — set <code>XAI_API_KEY</code> in Streamlit Secrets to enable Auto-Fill</div>', unsafe_allow_html=True)
+        # ── Groq key is hardcoded — always ready ─────────────────────
+        st.markdown('<div style="font-size:11px;color:#00ffb4;margin-bottom:8px">✅ Groq AI ready · Model: Llama 3.3 70B · No setup needed</div>', unsafe_allow_html=True)
 
         uploaded_pdf = st.file_uploader(
             "Select PDF file *", type=["pdf"],
@@ -1368,45 +1267,22 @@ def admin_research():
                 if not pdf_text:
                     st.warning("⚠️ Could not extract text from this PDF (may be scanned image). Fill fields manually.")
                 else:
-                    with st.spinner("🤖 Grok is analysing the report..."):
+                    with st.spinner("🤖 Llama 3.3 70B is analysing the report..."): 
                         parsed = _parse_report_with_grok(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
 
-                    if parsed.get("_error") == "no_api_key":
-                        st.error("❌ XAI_API_KEY not found in Streamlit Secrets.")
-                        st.markdown("""
-                        <div style="background:#0a0715;border:1px solid #ff6b6b44;border-radius:10px;padding:14px;font-size:13px">
-                        <b style="color:#ffd700">Steps to fix:</b><br>
-                        1. Go to <b>console.x.ai</b> → Sign in → API Keys → Create key<br>
-                        2. In Streamlit Cloud: your app → <b>⋮ menu → Settings → Secrets</b><br>
-                        3. Paste this (replace with your real key):
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
-                    elif parsed.get("_error") and ("403" in parsed["_error"] or "Forbidden" in parsed["_error"]):
-                        st.error("❌ 403 Forbidden — API key is set but rejected by xAI.")
-                        st.markdown("""
-                        <div style="background:#0a0715;border:1px solid #ff6b6b44;border-radius:10px;padding:14px;font-size:13px;color:#c0d0e0">
-                        <b style="color:#ffd700">Common causes:</b><br>
-                        • Key was pasted with extra spaces or quotes — check Secrets<br>
-                        • Key doesn't have access to the model — check your xAI plan<br>
-                        • Key may have been revoked — generate a new one at <b>console.x.ai</b><br><br>
-                        <b style="color:#ffd700">Correct Secrets format (no extra quotes around the value):</b>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
+                    if parsed.get("_error") and "429" in parsed["_error"]:
+                        st.warning("⚠️ Groq rate limit hit. Wait 30 seconds and try again.")
+                    elif parsed.get("_error") and ("401" in parsed["_error"] or "Unauthorized" in parsed["_error"]):
+                        st.error("❌ Groq API key error — contact admin.")
                         with st.expander("🔍 Full error detail"):
                             st.code(parsed["_error"])
-                    elif parsed.get("_error") and ("401" in parsed["_error"] or "Unauthorized" in parsed["_error"]):
-                        st.error("❌ 401 Unauthorized — API key is invalid.")
-                        st.code('XAI_API_KEY = "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', language="toml")
-                        st.caption("Your key must start with xai-. Get one from console.x.ai → API Keys.")
                     elif parsed.get("_error"):
                         st.warning(f"⚠️ AI parsing failed: {parsed['_error']}")
                         st.caption("You can still fill the fields manually below.")
                         with st.expander("🔍 Full error detail"):
                             st.code(parsed["_error"])
                     else:
-                        model_msg = f" (model: {parsed.get('_model_used', 'grok')})" if parsed.get("_model_used") else ""
+                        model_msg = f" (model: {parsed.get('_model_used', 'Llama')})" if parsed.get("_model_used") else ""
                         st.session_state["_ai_prefill"] = parsed
                         ai_data = parsed
                         st.success(f"✅ Fields auto-filled from PDF{model_msg}! Review and edit before saving.")
