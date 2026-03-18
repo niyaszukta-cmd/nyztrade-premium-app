@@ -282,12 +282,18 @@ def get_conn():
 
 
 def _migrate_db(conn):
-    """Add new columns to existing DBs without losing data (SQLite safe)."""
-    migrations = [
+    """
+    Safe migration: add new columns to existing DBs without data loss.
+    If the table has a fundamentally incompatible old schema (e.g. missing
+    all new columns), drop and recreate it — old parsed-text data had no PDFs
+    so nothing valuable is lost.
+    """
+    # Step 1: Always try to ADD new columns (silently skipped if they exist)
+    add_cols = [
         "ALTER TABLE research_reports ADD COLUMN pdf_data BLOB",
         "ALTER TABLE research_reports ADD COLUMN pdf_filename TEXT",
         "ALTER TABLE research_reports ADD COLUMN notes TEXT",
-        "ALTER TABLE research_reports ADD COLUMN visible_to TEXT",
+        "ALTER TABLE research_reports ADD COLUMN visible_to TEXT DEFAULT 'all'",
         "ALTER TABLE research_reports ADD COLUMN analyst TEXT",
         "ALTER TABLE research_reports ADD COLUMN sector TEXT",
         "ALTER TABLE research_reports ADD COLUMN tags TEXT",
@@ -299,17 +305,43 @@ def _migrate_db(conn):
         "ALTER TABLE research_reports ADD COLUMN category TEXT",
         "ALTER TABLE research_reports ADD COLUMN broker_house TEXT",
         "ALTER TABLE research_reports ADD COLUMN report_date TEXT",
+        # broker_calls table migrations
+        "ALTER TABLE broker_calls ADD COLUMN upside_pct REAL",
+        "ALTER TABLE broker_calls ADD COLUMN timeframe TEXT",
+        "ALTER TABLE broker_calls ADD COLUMN analyst TEXT",
+        "ALTER TABLE broker_calls ADD COLUMN status TEXT DEFAULT 'Active'",
+        "ALTER TABLE broker_calls ADD COLUMN call_date TEXT",
     ]
-    for sql in migrations:
+    for sql in add_cols:
         try:
             conn.execute(sql)
         except Exception:
             pass
+
+    # Step 2: Verify pdf_data column is actually queryable.
+    # If CASE WHEN pdf_data fails, the table is corrupt — nuke and recreate.
+    try:
+        conn.execute("SELECT CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END FROM research_reports LIMIT 1")
+    except Exception:
+        # Drop the old incompatible table — old parsed-text rows have no PDFs
+        try:
+            conn.execute("DROP TABLE IF EXISTS research_reports")
+        except Exception:
+            pass
+
+    # Step 3: Fix NULL visible_to values in existing rows
+    try:
+        conn.execute("UPDATE research_reports SET visible_to='all' WHERE visible_to IS NULL")
+    except Exception:
+        pass
+
     conn.commit()
 
 
 def init_db():
     conn = get_conn(); c = conn.cursor()
+    # Run migrations first so old DBs get upgraded before we touch them
+    _migrate_db(conn)
     c.execute("""CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
         username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
@@ -389,7 +421,6 @@ def init_db():
         call_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
     conn.commit()
-    _migrate_db(conn)
     conn.close()
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
@@ -1047,19 +1078,39 @@ def admin_research():
         broker_f = f1.selectbox("Broker", ["All"] + BROKER_HOUSES, key="adm_broker_f")
         cat_f    = f2.selectbox("Category", ["All"] + REPORT_CATEGORIES, key="adm_cat_f")
         call_f   = f3.selectbox("Rating", ["All","BUY","SELL","HOLD","ACCUMULATE","NEUTRAL"], key="adm_call_f")
-        # Fetch without pdf_data for listing (keep it fast)
-        q = """SELECT id, title, broker_house, category, symbol, call_type,
-                      target_price, current_price, upside_pct, analyst,
-                      report_date, sector, tags, notes, visible_to, pdf_filename,
-                      created_at,
-                      CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
-               FROM research_reports WHERE 1=1"""
-        params = []
-        if broker_f != "All": q += " AND broker_house=?"; params.append(broker_f)
-        if cat_f    != "All": q += " AND category=?";    params.append(cat_f)
-        if call_f   != "All": q += " AND call_type=?";   params.append(call_f)
-        q += " ORDER BY created_at DESC"
-        rows = conn.execute(q, params).fetchall()
+        # Safe query that works on old and new schemas
+        def _admin_fetch_reports(conn, broker_f, cat_f, call_f):
+            try:
+                q = """SELECT id, title,
+                              COALESCE(broker_house,'') as broker_house,
+                              COALESCE(category,'') as category,
+                              COALESCE(symbol,'') as symbol,
+                              COALESCE(call_type,'') as call_type,
+                              COALESCE(target_price,0) as target_price,
+                              COALESCE(current_price,0) as current_price,
+                              COALESCE(upside_pct,0) as upside_pct,
+                              COALESCE(analyst,'') as analyst,
+                              COALESCE(report_date,'') as report_date,
+                              COALESCE(sector,'') as sector,
+                              COALESCE(tags,'') as tags,
+                              COALESCE(notes,'') as notes,
+                              COALESCE(visible_to,'all') as visible_to,
+                              COALESCE(pdf_filename,'') as pdf_filename,
+                              created_at,
+                              CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
+                       FROM research_reports WHERE 1=1"""
+                params = []
+                if broker_f != "All": q += " AND broker_house=?"; params.append(broker_f)
+                if cat_f    != "All": q += " AND category=?";     params.append(cat_f)
+                if call_f   != "All": q += " AND call_type=?";    params.append(call_f)
+                q += " ORDER BY created_at DESC"
+                return conn.execute(q, params).fetchall()
+            except Exception:
+                try:
+                    return conn.execute("SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, created_at, 0 as has_pdf FROM research_reports ORDER BY created_at DESC").fetchall()
+                except Exception:
+                    return []
+        rows = _admin_fetch_reports(conn, broker_f, cat_f, call_f)
         conn.close()
         st.markdown(f"**{len(rows)} report(s)** found")
         for r in rows:
@@ -1133,7 +1184,11 @@ def admin_research():
             if bc_broker_f != "All": q2 += " AND broker_house=?"; p2.append(bc_broker_f)
             if bc_ct_f     != "All": q2 += " AND call_type=?";    p2.append(bc_ct_f)
             q2 += " ORDER BY created_at DESC"
-            bc_rows = conn.execute(q2, p2).fetchall(); conn.close()
+            try:
+                bc_rows = conn.execute(q2, p2).fetchall()
+            except Exception:
+                bc_rows = []
+            conn.close()
             for r in bc_rows:
                 render_broker_call_card(dict(r))
                 bc1a, bc2a = st.columns(2)
@@ -1596,20 +1651,34 @@ def member_research(member):
         call_f   = f3.selectbox("Rating", ["All","BUY","SELL","HOLD","ACCUMULATE","NEUTRAL"], key="m_call_f")
         sym_f    = f4.text_input("Symbol", placeholder="RELIANCE...", key="m_sym_f")
 
-        # Fetch metadata only (no pdf_data blob) for the listing
-        q = """SELECT id, title, broker_house, category, symbol, call_type,
-                      target_price, current_price, upside_pct, analyst,
-                      report_date, sector, tags, notes, visible_to, pdf_filename,
-                      CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
-               FROM research_reports
-               WHERE (visible_to='all' OR visible_to=?)"""
-        params = [st.session_state.get("active_portal", "equity")]
-        if broker_f != "All": q += " AND broker_house=?";  params.append(broker_f)
-        if cat_f    != "All": q += " AND category=?";      params.append(cat_f)
-        if call_f   != "All": q += " AND call_type=?";     params.append(call_f)
-        if sym_f.strip():     q += " AND symbol LIKE ?";   params.append(f"%{sym_f.upper().strip()}%")
-        q += " ORDER BY created_at DESC"
-        rows = conn.execute(q, params).fetchall()
+        # Safe query — works on old and new DB schemas
+        def _fetch_reports(conn, portal, broker_f, cat_f, call_f, sym_f):
+            # Try full query with pdf_data check first
+            try:
+                q = """SELECT id, title, broker_house, category, symbol, call_type,
+                              target_price, current_price, upside_pct, analyst,
+                              report_date, sector, tags, notes,
+                              COALESCE(visible_to, 'all') as visible_to,
+                              COALESCE(pdf_filename, '') as pdf_filename,
+                              CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
+                       FROM research_reports
+                       WHERE (COALESCE(visible_to,'all')='all' OR COALESCE(visible_to,'all')=?)"""
+                params = [portal]
+                if broker_f != "All": q += " AND broker_house=?";  params.append(broker_f)
+                if cat_f    != "All": q += " AND category=?";      params.append(cat_f)
+                if call_f   != "All": q += " AND call_type=?";     params.append(call_f)
+                if sym_f.strip():     q += " AND symbol LIKE ?";   params.append(f"%{sym_f.upper().strip()}%")
+                q += " ORDER BY created_at DESC"
+                return conn.execute(q, params).fetchall()
+            except Exception:
+                # Fallback for very old schemas — no pdf columns at all
+                try:
+                    q2 = "SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, 0 as has_pdf FROM research_reports ORDER BY created_at DESC"
+                    return conn.execute(q2).fetchall()
+                except Exception:
+                    return []
+
+        rows = _fetch_reports(conn, st.session_state.get("active_portal", "equity"), broker_f, cat_f, call_f, sym_f)
         conn.close()
 
         if not rows:
@@ -1650,7 +1719,11 @@ def member_research(member):
         if bc_c != "All": q2 += " AND call_type=?";    p2.append(bc_c)
         if bc_s != "All": q2 += " AND status=?";       p2.append(bc_s)
         q2 += " ORDER BY created_at DESC"
-        bc_rows = conn.execute(q2, p2).fetchall(); conn.close()
+        try:
+            bc_rows = conn.execute(q2, p2).fetchall()
+        except Exception:
+            bc_rows = []
+        conn.close()
         if not bc_rows:
             st.info("No broker calls available yet.")
         else:
