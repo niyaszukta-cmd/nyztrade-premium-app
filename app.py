@@ -91,33 +91,59 @@ DARK_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
 
+/* ── MOBILE-FIRST RESET ── */
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .stApp { background: #08070f; color: #e2d9f3; }
 
+/* ── MOBILE VIEWPORT FIX ── */
+@viewport { width: device-width; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* ── HIDE STREAMLIT CHROME on mobile ── */
+#MainMenu, footer, header { visibility: hidden; height: 0; }
+.stDeployButton { display: none; }
+
+/* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0f0a1e 0%, #0a0715 100%) !important;
     border-right: 1px solid #2d1f4e !important;
+    min-width: 220px !important;
 }
 
+/* ── MAIN CONTENT PADDING (mobile-safe) ── */
+.block-container {
+    padding: 1rem 1rem 2rem 1rem !important;
+    max-width: 100% !important;
+}
+@media (min-width: 768px) {
+    .block-container { padding: 1.5rem 2rem 3rem 2rem !important; }
+}
+
+/* ── METRIC CARDS ── */
 .metric-card {
     background: #120d20; border: 1px solid #2d1f4e;
-    border-radius: 14px; padding: 20px; text-align: center; margin-bottom: 10px;
+    border-radius: 14px; padding: 14px 10px; text-align: center; margin-bottom: 10px;
 }
-.metric-value { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 36px; font-weight: 800; color: #a855f7; }
-.metric-label { font-size: 11px; color: #5a4870; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }
+.metric-value {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: clamp(22px, 5vw, 36px); font-weight: 800; color: #a855f7;
+}
+.metric-label { font-size: 10px; color: #5a4870; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
 
+/* ── CALL CARDS ── */
 .call-card {
     background: #0f0a1e; border-left: 3px solid #7c3aed;
-    border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
 }
 .call-card.buy    { border-left-color: #00ffb4; }
 .call-card.sell   { border-left-color: #ff6b6b; }
 .call-card.hold   { border-left-color: #ffd700; }
 .call-card.closed { border-left-color: #3d2f5e; opacity: 0.75; }
 
+/* ── BADGES ── */
 .badge {
-    display: inline-block; padding: 2px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 700; margin-left: 6px; letter-spacing: 1px;
+    display: inline-block; padding: 2px 8px; border-radius: 20px;
+    font-size: 10px; font-weight: 700; margin-left: 5px; letter-spacing: 0.8px;
 }
 .badge-buy    { background: #00ffb422; color: #00ffb4; border: 1px solid #00ffb4; }
 .badge-sell   { background: #ff6b6b22; color: #ff6b6b; border: 1px solid #ff6b6b; }
@@ -127,55 +153,86 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .badge-ce     { background: #00ffb422; color: #00ffb4; border: 1px solid #00ffb4; }
 .badge-pe     { background: #ff6b6b22; color: #ff6b6b; border: 1px solid #ff6b6b; }
 
+/* ── SECTION HEADERS ── */
 .section-header {
-    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 28px;
-    font-weight: 800; color: #ffffff; margin-bottom: 4px; letter-spacing: -0.3px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: clamp(20px, 5vw, 28px);
+    font-weight: 800; color: #ffffff; margin-bottom: 4px;
 }
-.section-sub { font-size: 13px; color: #5a4870; margin-bottom: 24px; letter-spacing: 0.5px; }
+.section-sub { font-size: 12px; color: #5a4870; margin-bottom: 18px; }
 
+/* ── TAG ── */
 .tag {
     display: inline-block; background: #a855f722; color: #c084fc;
-    border: 1px solid #a855f744; border-radius: 20px; font-size: 11px;
-    padding: 2px 10px; margin-right: 6px; font-weight: 600;
-    letter-spacing: 1px; text-transform: uppercase;
+    border: 1px solid #a855f744; border-radius: 20px; font-size: 10px;
+    padding: 2px 8px; margin-right: 5px; font-weight: 600;
+    letter-spacing: 0.8px; text-transform: uppercase;
 }
 
+/* ── CARDS ── */
 .update-card {
     background: #0f0a1e; border: 1px solid #2d1f4e;
-    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    border-radius: 12px; padding: 16px; margin-bottom: 14px;
 }
 .report-card {
     background: #0c0a18; border: 1px solid #2d1f4e;
-    border-radius: 14px; padding: 22px; margin-bottom: 16px;
+    border-radius: 14px; padding: 18px; margin-bottom: 14px;
     position: relative; overflow: hidden;
 }
 .report-card:hover { border-color: #5b2fa0; }
-
 .sub-card {
     background: linear-gradient(135deg, #120d20, #0f0a1e);
     border: 1px solid #3d1f6b; border-radius: 18px;
-    padding: 28px; margin-bottom: 20px;
+    padding: 20px; margin-bottom: 18px;
 }
-
 .pnl-pos { color: #00ffb4; font-weight: 700; }
 .pnl-neg { color: #ff6b6b; font-weight: 700; }
 
+/* ── BUTTONS (touch-friendly) ── */
 .stButton > button {
     background: linear-gradient(135deg, #7c3aed, #a855f7) !important;
     color: #fff !important; font-weight: 700 !important;
     font-family: 'DM Sans', sans-serif !important;
     border: none !important; border-radius: 10px !important;
     transition: all 0.2s !important;
+    min-height: 44px !important;        /* iOS touch target */
+    font-size: 14px !important;
 }
-.stButton > button:hover { opacity: 0.88 !important; transform: translateY(-1px) !important; }
+.stButton > button:hover { opacity: 0.88 !important; }
+.stButton > button:active { opacity: 0.75 !important; transform: scale(0.98) !important; }
 
+/* ── FORMS (dark, mobile-sized inputs) ── */
 div[data-testid="stForm"] {
-    background: #0f0a1e; border: 1px solid #2d1f4e; border-radius: 14px; padding: 20px;
+    background: #0f0a1e; border: 1px solid #2d1f4e; border-radius: 14px; padding: 16px;
 }
-.stTextInput > div > div, .stSelectbox > div,
-.stTextArea > div > div, .stNumberInput > div > div {
-    background: #0a0715 !important; border-color: #2d1f4e !important; color: #e2d9f3 !important;
+.stTextInput > div > div,
+.stSelectbox > div,
+.stTextArea > div > div,
+.stNumberInput > div > div {
+    background: #0a0715 !important; border-color: #2d1f4e !important;
+    color: #e2d9f3 !important; border-radius: 8px !important;
+    font-size: 15px !important;         /* prevents iOS zoom-in */
+    min-height: 44px !important;
 }
+input, textarea, select {
+    font-size: 16px !important;         /* iOS no-zoom rule */
+}
+
+/* ── RADIO (sidebar nav) ── */
+[data-testid="stRadio"] > div { gap: 2px !important; }
+[data-testid="stRadio"] label {
+    font-size: 14px !important; padding: 8px 6px !important;
+    border-radius: 8px !important; cursor: pointer;
+}
+[data-testid="stRadio"] label:hover { background: #1a0f30 !important; }
+
+/* ── EXPANDER ── */
+[data-testid="stExpander"] {
+    background: #0f0a1e !important; border: 1px solid #2d1f4e !important;
+    border-radius: 10px !important; margin-bottom: 10px !important;
+}
+
+/* ── WINRATE BADGE ── */
 .winrate-badge {
     background: linear-gradient(135deg, #a855f722, #7c3aed22);
     border: 1px solid #a855f744; border-radius: 50px; padding: 6px 20px;
@@ -183,29 +240,34 @@ div[data-testid="stForm"] {
     color: #c084fc; display: inline-block;
 }
 
-/* No-download overlay for report viewer */
-.report-viewer-wrap {
-    position: relative; border-radius: 12px; overflow: hidden;
-    border: 1px solid #2d1f4e;
-}
-.report-viewer-wrap iframe {
-    display: block; width: 100%; border: none; pointer-events: auto;
-}
-.no-download-overlay {
-    position: absolute; top: 0; right: 0; left: 0; bottom: 0;
-    z-index: 10; pointer-events: none;
-}
-/* Video embed container */
+/* ── VIDEO EMBED ── */
 .video-embed-wrap {
     background: #041428; border: 1px solid #0a2040;
-    border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+    border-radius: 12px; overflow: hidden; margin-bottom: 14px;
 }
-.video-embed-wrap iframe {
-    width: 100%; border: none; display: block;
+.video-embed-wrap iframe { width: 100%; border: none; display: block; }
+
+/* ── MOBILE: collapse sidebar trigger ── */
+@media (max-width: 767px) {
+    [data-testid="stSidebar"] { min-width: 0 !important; }
+    .block-container { padding: 0.75rem !important; }
+    .section-header { font-size: 20px !important; }
+    .metric-value { font-size: 22px !important; }
+    .call-card { padding: 12px !important; }
 }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0a0715; }
+::-webkit-scrollbar-thumb { background: #3d1f6b; border-radius: 3px; }
 </style>
 """
 st.markdown(DARK_CSS, unsafe_allow_html=True)
+# Mobile viewport + PWA meta tags
+st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#08070f">''', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
 # DATABASE
@@ -217,6 +279,34 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _migrate_db(conn):
+    """Add new columns to existing DBs without losing data (SQLite safe)."""
+    migrations = [
+        "ALTER TABLE research_reports ADD COLUMN pdf_data BLOB",
+        "ALTER TABLE research_reports ADD COLUMN pdf_filename TEXT",
+        "ALTER TABLE research_reports ADD COLUMN notes TEXT",
+        "ALTER TABLE research_reports ADD COLUMN visible_to TEXT",
+        "ALTER TABLE research_reports ADD COLUMN analyst TEXT",
+        "ALTER TABLE research_reports ADD COLUMN sector TEXT",
+        "ALTER TABLE research_reports ADD COLUMN tags TEXT",
+        "ALTER TABLE research_reports ADD COLUMN upside_pct REAL",
+        "ALTER TABLE research_reports ADD COLUMN current_price REAL",
+        "ALTER TABLE research_reports ADD COLUMN target_price REAL",
+        "ALTER TABLE research_reports ADD COLUMN call_type TEXT",
+        "ALTER TABLE research_reports ADD COLUMN symbol TEXT",
+        "ALTER TABLE research_reports ADD COLUMN category TEXT",
+        "ALTER TABLE research_reports ADD COLUMN broker_house TEXT",
+        "ALTER TABLE research_reports ADD COLUMN report_date TEXT",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass
+    conn.commit()
+
 
 def init_db():
     conn = get_conn(); c = conn.cursor()
@@ -298,7 +388,9 @@ def init_db():
         status TEXT DEFAULT 'Active',
         call_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    conn.commit(); conn.close()
+    conn.commit()
+    _migrate_db(conn)
+    conn.close()
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
@@ -318,6 +410,70 @@ def member_has_access(member, portal_type):
     return portal_type in allowed
 
 init_db()
+
+# ══════════════════════════════════════════════════════════════════════
+# SESSION PERSISTENCE  (JSON file — survives Streamlit reruns)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Streamlit's st.session_state resets when the browser tab is refreshed.
+# We persist the login tokens (portal choice, member dict, admin flag)
+# in a tiny JSON file on disk so users stay logged in across refreshes.
+# The DB_PATH directory is writable on Streamlit Cloud (ephemeral FS).
+# IMPORTANT: session file stores NO passwords — only username + plan metadata.
+
+SESSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nyz_session.json")
+
+def _load_session():
+    """Load persisted session from disk into st.session_state (once per run)."""
+    if st.session_state.get("_session_loaded"):
+        return
+    st.session_state["_session_loaded"] = True
+    try:
+        if os.path.exists(SESSION_FILE):
+            with open(SESSION_FILE, "r") as f:
+                data = json.load(f)
+            # Restore portal
+            if "portal" not in st.session_state and data.get("portal"):
+                st.session_state["portal"] = data["portal"]
+            # Restore admin flag
+            if not st.session_state.get("admin_logged_in") and data.get("admin_logged_in"):
+                st.session_state["admin_logged_in"] = True
+            # Restore member (re-verify from DB to ensure still active)
+            if not st.session_state.get("member") and data.get("member_username"):
+                conn = get_conn()
+                row = conn.execute(
+                    "SELECT * FROM clients WHERE username=? AND status='Active'",
+                    (data["member_username"],)
+                ).fetchone()
+                conn.close()
+                if row:
+                    st.session_state["member"] = dict(row)
+                    st.session_state["active_portal"] = data.get("active_portal", "equity")
+    except Exception:
+        pass  # corrupt file — start fresh
+
+def _save_session():
+    """Persist current session state to disk."""
+    try:
+        data = {
+            "portal":          st.session_state.get("portal"),
+            "admin_logged_in": bool(st.session_state.get("admin_logged_in")),
+            "member_username": (st.session_state.get("member") or {}).get("username"),
+            "active_portal":   st.session_state.get("active_portal"),
+        }
+        with open(SESSION_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _clear_session():
+    """Wipe persisted session (on logout)."""
+    try:
+        if os.path.exists(SESSION_FILE):
+            os.remove(SESSION_FILE)
+    except Exception:
+        pass
+
 
 # ══════════════════════════════════════════════════════════════════════
 # DISCORD / TELEGRAM HELPERS
@@ -689,6 +845,7 @@ def select_portal():
             </div>""", unsafe_allow_html=True)
             if st.button(f"Enter {title} →", key=f"btn_{portal_key}", use_container_width=True):
                 st.session_state.portal = portal_key
+                _save_session()
                 st.rerun()
 
     st.markdown('''
@@ -750,6 +907,7 @@ def portal_login(portal_type):
                 if portal_type == "research" or member_has_access(dict(member), portal_type):
                     st.session_state.member = dict(member)
                     st.session_state.active_portal = portal_type
+                    _save_session()
                     st.rerun()
                 else:
                     st.error(f"Your plan ({member['plan']}) does not include {title}. Contact Dr. Niyas N to upgrade.")
@@ -801,6 +959,7 @@ def admin_login():
         if st.form_submit_button("Enter Command Centre →", use_container_width=True):
             if u == ADMIN_USERNAME and hashlib.sha256(p.encode()).hexdigest() == ADMIN_HASH:
                 st.session_state.admin_logged_in = True
+                _save_session()
                 st.rerun()
             else:
                 st.error("Invalid credentials.")
@@ -1778,6 +1937,9 @@ def sidebar_member_info(member, accent="#a855f7"):
 # ══════════════════════════════════════════════════════════════════════
 
 def main():
+    # Load persisted session from disk (no-op if already loaded this run)
+    _load_session()
+
     if "portal" not in st.session_state:
         st.session_state.portal = None
 
@@ -1806,9 +1968,12 @@ def main():
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
-                st.session_state.admin_logged_in = False; st.rerun()
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
             st.markdown('<div style="font-size:11px;color:#445566;text-align:center">Dr. Niyas N | Admin</div>', unsafe_allow_html=True)
 
+        _save_session()
         pages = {
             "🏠 Dashboard":           admin_dashboard,
             "📊 Equity Calls":        admin_equity,
@@ -1842,37 +2007,41 @@ def main():
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
-                st.session_state.pop("member", None); st.session_state.active_portal = None; st.rerun()
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
 
+        _save_session()
         eq_pages = {
-            "🏠 Home":         equity_home,
-            "📊 Active Calls": equity_home,
-            "📈 Track Record": equity_track_record,
-            "📄 Research Hub": member_research,
-            "📢 Updates Feed": member_updates,
-            "🎬 Video Library":member_videos,
-            "👤 My Profile":   lambda m: member_profile(m, "equity"),
+            "🏠 Home":          equity_home,
+            "📊 Active Calls":  equity_home,
+            "📈 Track Record":  equity_track_record,
+            "📄 Research Hub":  member_research,
+            "📢 Updates Feed":  member_updates,
+            "🎬 Video Library": member_videos,
+            "👤 My Profile":    lambda m: member_profile(m, "equity"),
         }
         if page == "📊 Active Calls":
             st.markdown('<div class="section-header">📊 Active Equity Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall(); conn.close()
+            rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            conn.close()
             if not rows: st.info("No active calls right now.")
             for r in rows:
                 rr = round((r['target1']-r['entry_price'])/(r['entry_price']-r['stop_loss']),2) if r['entry_price'] and r['stop_loss'] and r['stop_loss']!=r['entry_price'] else None
                 st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
-                  <div style="display:flex;justify-content:space-between">
-                    <div><span style="font-size:20px;font-weight:800;color:#fff">{r['symbol']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-open">OPEN</span></div>
-                    <div style="font-size:13px;color:#445566">{r['posted_date'] or ''}</div>
+                  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
+                    <div><span style="font-size:18px;font-weight:800;color:#fff">{r['symbol']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-open">OPEN</span></div>
+                    <div style="font-size:12px;color:#445566">{r['posted_date'] or ''}</div>
                   </div>
-                  <div style="display:flex;gap:30px;margin-top:14px;flex-wrap:wrap">
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:22px;font-weight:700;color:#fff">₹{r['entry_price']}</div></div>
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Target 1</div><div style="font-size:22px;font-weight:700;color:#00ffb4">₹{r['target1']}</div></div>
-                    {"<div><div style='font-size:11px;color:#445566;text-transform:uppercase'>Target 2</div><div style='font-size:22px;font-weight:700;color:#00ffb4'>₹"+str(r['target2'])+"</div></div>" if r['target2'] else ""}
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Stop Loss</div><div style="font-size:22px;font-weight:700;color:#ff6b6b">₹{r['stop_loss']}</div></div>
-                    {"<div><div style='font-size:11px;color:#445566;text-transform:uppercase'>R:R</div><div style='font-size:22px;font-weight:700;color:#ffd700'>1:"+str(rr)+"</div></div>" if rr else ""}
+                  <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:18px;font-weight:700;color:#fff">₹{r['entry_price']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">T1</div><div style="font-size:18px;font-weight:700;color:#00ffb4">₹{r['target1']}</div></div>
+                    {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>T2</div><div style='font-size:18px;font-weight:700;color:#00ffb4'>₹"+str(r['target2'])+"</div></div>" if r['target2'] else ""}
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">SL</div><div style="font-size:18px;font-weight:700;color:#ff6b6b">₹{r['stop_loss']}</div></div>
+                    {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>R:R</div><div style='font-size:18px;font-weight:700;color:#ffd700'>1:"+str(rr)+"</div></div>" if rr else ""}
                   </div>
-                  {"<div style='margin-top:12px;background:#020e20;border-radius:6px;padding:10px;font-size:14px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
+                  {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
             eq_pages[page](member)
@@ -1898,35 +2067,39 @@ def main():
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
-                st.session_state.pop("member", None); st.session_state.active_portal = None; st.rerun()
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
 
+        _save_session()
         op_pages = {
-            "🏠 Home":         options_home,
-            "📊 GEX Analysis": options_gex_analysis,
-            "📈 Track Record": options_track_record,
-            "📄 Research Hub": member_research,
-            "📢 Updates Feed": member_updates,
-            "🎬 Video Library":member_videos,
-            "👤 My Profile":   lambda m: member_profile(m, "options"),
+            "🏠 Home":          options_home,
+            "📊 GEX Analysis":  options_gex_analysis,
+            "📈 Track Record":  options_track_record,
+            "📄 Research Hub":  member_research,
+            "📢 Updates Feed":  member_updates,
+            "🎬 Video Library": member_videos,
+            "👤 My Profile":    lambda m: member_profile(m, "options"),
         }
         if page == "⚡ Active Calls":
             st.markdown('<div class="section-header">⚡ Active Options Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall(); conn.close()
+            rows = conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            conn.close()
             if not rows: st.info("No active options calls right now.")
             for r in rows:
                 st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
-                  <div style="display:flex;justify-content:space-between">
-                    <div><span style="font-size:20px;font-weight:800;color:#fff">{r['underlying']} {r['strike']} {r['option_type']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-{r['option_type'].lower()}">{r['option_type']}</span></div>
-                    <div style="font-size:13px;color:#445566">Exp: {r['expiry']}</div>
+                  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
+                    <div><span style="font-size:18px;font-weight:800;color:#fff">{r['underlying']} {r['strike']} {r['option_type']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span></div>
+                    <div style="font-size:12px;color:#445566">Exp: {r['expiry']}</div>
                   </div>
-                  <div style="display:flex;gap:30px;margin-top:14px">
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Entry Premium</div><div style="font-size:22px;font-weight:700;color:#fff">₹{r['entry_premium']}</div></div>
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Target</div><div style="font-size:22px;font-weight:700;color:#00ffb4">₹{r['target_premium']}</div></div>
-                    <div><div style="font-size:11px;color:#445566;text-transform:uppercase">Stop Loss</div><div style="font-size:22px;font-weight:700;color:#ff6b6b">₹{r['stop_premium']}</div></div>
+                  <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:18px;font-weight:700;color:#fff">₹{r['entry_premium']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Target</div><div style="font-size:18px;font-weight:700;color:#00ffb4">₹{r['target_premium']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">SL</div><div style="font-size:18px;font-weight:700;color:#ff6b6b">₹{r['stop_premium']}</div></div>
                   </div>
-                  {"<div style='margin-top:12px;background:#020e20;border-radius:6px;padding:10px;font-size:14px;color:#c0d0e0'><b style='color:#7b61ff'>📊 GEX:</b> "+r['gex_note']+"</div>" if r['gex_note'] else ""}
-                  {"<div style='margin-top:8px;background:#020e20;border-radius:6px;padding:10px;font-size:14px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
+                  {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#7b61ff'>GEX:</b> "+r['gex_note']+"</div>" if r['gex_note'] else ""}
+                  {"<div style='margin-top:6px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
             op_pages[page](member)
@@ -1951,8 +2124,11 @@ def main():
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
-                st.session_state.pop("member", None); st.session_state.active_portal = None; st.rerun()
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
 
+        _save_session()
         res_pages = {
             "📄 Research Reports": member_research,
             "🏦 Broker Calls":     member_research,
