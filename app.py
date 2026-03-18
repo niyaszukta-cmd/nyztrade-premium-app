@@ -763,6 +763,7 @@ def render_report_meta(r):
 def render_pdf_viewer(pdf_bytes, report_id):
     """
     Renders a PDF inline using PDF.js via a sandboxed iframe.
+    High-resolution rendering via devicePixelRatio — sharp on retina/HiDPI screens.
     The PDF is embedded as a base64 data URI — no raw file URL is ever exposed.
     Download / print shortcuts are blocked. Context menu is disabled.
     """
@@ -774,84 +775,193 @@ def render_pdf_viewer(pdf_bytes, report_id):
 <style>
   * {{ margin:0; padding:0; box-sizing:border-box; }}
   body {{ background:#0c0a18; overflow:hidden; font-family:sans-serif; }}
-  #pdf-wrap {{ position:relative; width:100%; height:760px; user-select:none; -webkit-user-select:none; }}
+  #pdf-wrap {{ position:relative; width:100%; height:800px; user-select:none; -webkit-user-select:none; }}
   #pdf-canvas-container {{
-    width:100%; height:760px; overflow-y:auto; background:#1a1530;
+    width:100%; height:800px; overflow-y:auto; overflow-x:hidden;
+    background:#1a1530;
     scrollbar-width:thin; scrollbar-color:#3d1f6b #0c0a18;
   }}
-  canvas {{ display:block; margin:8px auto; box-shadow:0 4px 20px #00000066; }}
-  #no-right-click {{ position:absolute; top:40px; left:0; right:0; bottom:0; z-index:100; background:transparent; }}
+  /* Canvas is rendered at physical pixels then scaled DOWN by CSS for crispness */
+  canvas {{
+    display:block;
+    margin:10px auto;
+    box-shadow:0 4px 24px #00000088;
+    /* CSS width set dynamically in JS after render */
+  }}
+  #no-right-click {{ position:absolute; top:42px; left:0; right:0; bottom:0; z-index:100; background:transparent; }}
   #toolbar {{
-    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-    background:#130d22; border-bottom:1px solid #2d1f4e; padding:7px 12px; height:40px;
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    background:#130d22; border-bottom:1px solid #2d1f4e; padding:6px 10px; height:42px;
   }}
   #toolbar button {{
     background:#3d1f6b; color:#c084fc; border:1px solid #5b2fa0;
-    border-radius:6px; padding:3px 11px; font-size:12px; cursor:pointer;
+    border-radius:6px; padding:4px 12px; font-size:12px; cursor:pointer;
+    transition: background 0.15s;
   }}
-  #toolbar button:hover {{ background:#5b2fa0; }}
-  #page-info {{ color:#6b5a8a; font-size:11px; }}
+  #toolbar button:hover {{ background:#5b2fa0; color:#fff; }}
+  #page-info {{ color:#6b5a8a; font-size:11px; min-width:70px; text-align:center; }}
+  #zoom-info  {{ color:#5b2fa0; font-size:11px; min-width:44px; text-align:center; }}
   #lock-badge {{
     margin-left:auto; background:#ff6b6b18; color:#ff9999; border:1px solid #ff6b6b33;
     border-radius:12px; padding:2px 10px; font-size:10px; font-weight:600;
     letter-spacing:1px; text-transform:uppercase;
   }}
-  #loading {{ color:#6b5a8a; font-size:13px; text-align:center; padding:40px; }}
+  #loading {{
+    color:#6b5a8a; font-size:13px; text-align:center; padding:60px;
+    display:flex; flex-direction:column; align-items:center; gap:12px;
+  }}
+  .spinner {{
+    width:28px; height:28px; border:3px solid #2d1f4e;
+    border-top:3px solid #a855f7; border-radius:50%;
+    animation:spin 0.8s linear infinite;
+  }}
+  @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <button onclick="prevPage()">&#9664; Prev</button>
-  <button onclick="nextPage()">Next &#9654;</button>
-  <button onclick="zoomIn()">&#65291; Zoom</button>
-  <button onclick="zoomOut()">&#65293; Zoom</button>
-  <span id="page-info">Loading...</span>
+  <button onclick="prevPage()" title="Previous page">&#9664; Prev</button>
+  <button onclick="nextPage()" title="Next page">Next &#9654;</button>
+  <span id="page-info">...</span>
+  <button onclick="zoomOut()" title="Zoom out">&#8722; Zoom</button>
+  <span id="zoom-info">100%</span>
+  <button onclick="zoomIn()"  title="Zoom in">&#43; Zoom</button>
+  <button onclick="fitWidth()" title="Fit to width" style="font-size:11px;">&#8596; Fit</button>
   <span id="lock-badge">&#128274; View Only</span>
 </div>
 <div id="pdf-wrap">
-  <div id="pdf-canvas-container"><div id="loading">Loading PDF...</div></div>
+  <div id="pdf-canvas-container">
+    <div id="loading"><div class="spinner"></div>Loading PDF...</div>
+  </div>
   <div id="no-right-click" oncontextmenu="return false;"></div>
 </div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
   const B64   = "{b64}";
   const raw   = atob(B64);
   const bytes = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  let pdfDoc = null, pageNum = 1, scale = 1.35;
+
+  let pdfDoc  = null;
+  let pageNum = 1;
+  let scale   = 1.8;          // logical scale (user-facing)
+  let rendering = false;
+  let pendingPage = null;
+
   const cont = document.getElementById('pdf-canvas-container');
+
+  // ── High-DPI aware rendering ──────────────────────────────────────
+  // devicePixelRatio (DPR) = 2 on retina, 1 on normal screens.
+  // We render the canvas at (scale * DPR) physical pixels, then set
+  // the CSS width = logical pixels → text is razor-sharp on all screens.
   function renderPage(n) {{
+    if (rendering) {{ pendingPage = n; return; }}
+    rendering = true;
+
     pdfDoc.getPage(n).then(page => {{
-      cont.innerHTML = '';
-      const vp = page.getViewport({{ scale }});
+      const dpr        = window.devicePixelRatio || 1;
+      const outputScale = Math.min(dpr * scale, dpr * 3.5); // cap at 3.5x to avoid OOM
+
+      const vpLogical  = page.getViewport({{ scale }});               // logical viewport
+      const vpPhysical = page.getViewport({{ scale: outputScale }});   // physical (hi-res)
+
+      // Container width for fit-to-width
+      const contW = cont.clientWidth - 20; // 10px margin each side
+
       const cv = document.createElement('canvas');
-      cv.width = vp.width; cv.height = vp.height;
+      cv.width  = vpPhysical.width;
+      cv.height = vpPhysical.height;
+
+      // CSS size = logical size → browser scales up canvas by DPR = crisp
+      cv.style.width  = vpLogical.width  + 'px';
+      cv.style.height = vpLogical.height + 'px';
+      // Never exceed container width
+      if (vpLogical.width > contW) {{
+        const ratio = contW / vpLogical.width;
+        cv.style.width  = contW + 'px';
+        cv.style.height = (vpLogical.height * ratio) + 'px';
+      }}
+
+      const ctx = cv.getContext('2d', {{ alpha: false }});
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      cont.innerHTML = '';
       cont.appendChild(cv);
-      page.render({{ canvasContext: cv.getContext('2d'), viewport: vp }});
-      document.getElementById('page-info').textContent = 'Page ' + n + ' / ' + pdfDoc.numPages;
+
+      const renderTask = page.render({{
+        canvasContext: ctx,
+        viewport:      vpPhysical,
+        intent:        'display',
+      }});
+
+      renderTask.promise.then(() => {{
+        rendering = false;
+        document.getElementById('page-info').textContent =
+          'Page ' + n + ' / ' + pdfDoc.numPages;
+        document.getElementById('zoom-info').textContent =
+          Math.round(scale * 100) + '%';
+        if (pendingPage !== null) {{
+          const p = pendingPage; pendingPage = null; renderPage(p);
+        }}
+      }}).catch(() => {{ rendering = false; }});
     }});
   }}
-  pdfjsLib.getDocument({{ data: bytes }}).promise.then(pdf => {{
-    pdfDoc = pdf; renderPage(1);
+
+  pdfjsLib.getDocument({{
+    data: bytes,
+    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapPacked: true,
+  }}).promise.then(pdf => {{
+    pdfDoc = pdf;
+    renderPage(1);
   }}).catch(e => {{
-    cont.innerHTML = '<div style="color:#ff6b6b;padding:30px">Error loading PDF: ' + e.message + '</div>';
+    cont.innerHTML =
+      '<div style="color:#ff6b6b;padding:30px;font-size:13px">Error loading PDF: ' + e.message + '</div>';
   }});
-  function prevPage() {{ if (pageNum > 1) {{ pageNum--; renderPage(pageNum); }} }}
-  function nextPage() {{ if (pdfDoc && pageNum < pdfDoc.numPages) {{ pageNum++; renderPage(pageNum); }} }}
-  function zoomIn()  {{ scale = Math.min(scale + 0.2, 3.2); renderPage(pageNum); }}
-  function zoomOut() {{ scale = Math.max(scale - 0.2, 0.5); renderPage(pageNum); }}
+
+  function prevPage() {{
+    if (pageNum > 1) {{ pageNum--; renderPage(pageNum); }}
+  }}
+  function nextPage() {{
+    if (pdfDoc && pageNum < pdfDoc.numPages) {{ pageNum++; renderPage(pageNum); }}
+  }}
+  function zoomIn() {{
+    scale = Math.min(+(scale + 0.25).toFixed(2), 4.0);
+    renderPage(pageNum);
+  }}
+  function zoomOut() {{
+    scale = Math.max(+(scale - 0.25).toFixed(2), 0.5);
+    renderPage(pageNum);
+  }}
+  function fitWidth() {{
+    // Fit current page width to container — recalculate scale
+    pdfDoc.getPage(pageNum).then(page => {{
+      const contW = cont.clientWidth - 20;
+      const vp1   = page.getViewport({{ scale: 1.0 }});
+      scale = +(contW / vp1.width).toFixed(2);
+      renderPage(pageNum);
+    }});
+  }}
+
+  // Block download / print shortcuts
   document.addEventListener('keydown', e => {{
     if ((e.ctrlKey || e.metaKey) && ['p','s','u','a'].includes(e.key.toLowerCase())) {{
       e.preventDefault(); return false;
     }}
+    // Keyboard navigation
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextPage();
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   prevPage();
   }});
   document.addEventListener('contextmenu', e => e.preventDefault());
 </script>
 </body>
 </html>"""
-    st.components.v1.html(viewer_html, height=810, scrolling=False)
+    st.components.v1.html(viewer_html, height=855, scrolling=False)
 
 
 def render_broker_call_card(r):
