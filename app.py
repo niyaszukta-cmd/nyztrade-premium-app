@@ -15,6 +15,9 @@ from datetime import date, timedelta, datetime
 
 import streamlit as st
 
+# xAI Grok API base (OpenAI-compatible)
+XAI_API_BASE = "https://api.x.ai/v1"
+
 # ══════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════
@@ -1064,40 +1067,37 @@ def admin_login():
 # ══════════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════════
-# PDF AUTO-FILL HELPERS
+# xAI GROK API LAYER  (shared by PDF auto-fill — same engine as HumanizeAI)
 # ══════════════════════════════════════════════════════════════════════
 
-def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
-    """Extract plain text from PDF bytes using PyMuPDF. Returns up to max_chars."""
-    try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        parts = []
-        total = 0
-        for page in doc:
-            t = page.get_text("text")
-            parts.append(t)
-            total += len(t)
-            if total >= max_chars:
-                break
-        doc.close()
-        text = "\n".join(parts)[:max_chars]
-        return text.strip()
-    except Exception as e:
-        return ""
+# xAI model fallback order — tries in sequence until one responds 200
+_XAI_MODELS_FALLBACK = ["grok-2", "grok-2-1212", "grok-beta", "grok-1"]
+
+# Human-readable model labels (mirrors HumanizeAI GROK_MODELS)
+GROK_MODELS = {
+    "grok-2":       "Grok 2 · Best quality",
+    "grok-2-1212":  "Grok 2 (Dec) · Stable",
+    "grok-beta":    "Grok Beta · Latest",
+    "grok-1":       "Grok 1 · Fast",
+}
+
+
+def _resolve_model(requested: str) -> list:
+    """Return ordered list of models to try, starting with requested."""
+    fallback = [m for m in _XAI_MODELS_FALLBACK if m != requested]
+    return [requested] + fallback
 
 
 def _get_api_key() -> str:
-    """Safely retrieve XAI_API_KEY from Streamlit secrets or environment."""
-    import os
-    # Try all key name variants in secrets
+    """Safely retrieve XAI/Grok API key — tries secrets, then env. Never crashes."""
+    # Try all key name variants in Streamlit secrets
     for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
         try:
             v = st.secrets[_k]
             if v and str(v).strip(): return str(v).strip()
         except Exception:
             pass
-    # Try .get() on the whole secrets dict
+    # Try .get() on the secrets dict
     try:
         for _k in ("XAI_API_KEY", "xai_api_key", "GROK_API_KEY", "grok_api_key"):
             v = st.secrets.get(_k)
@@ -1111,88 +1111,165 @@ def _get_api_key() -> str:
     return ""
 
 
-def _call_xai(api_key: str, prompt: str) -> str:
-    """
-    Call xAI API using the requests library.
-    Tries grok-2 first (most available), then falls back to other models.
-    Returns the raw response text or raises an exception with full details.
-    """
-    import json as _json
+def _get_xai_key(user_key: str = "", platform_key: str = "") -> str:
+    """Resolve best available xAI key: user → platform → secrets → env."""
+    if user_key and user_key.strip(): return user_key.strip()
+    if platform_key and platform_key.strip(): return platform_key.strip()
+    return _get_api_key()
 
-    # xAI model names — try in order of availability
-    models_to_try = ["grok-2", "grok-2-1212", "grok-beta", "grok-1"]
 
+def call_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
+              max_tokens: int = 2048, stream: bool = False):
+    """
+    Call xAI Grok API (OpenAI-compatible).
+    Tries requested model first, then falls back through _XAI_MODELS_FALLBACK.
+    Returns a requests.Response object on success.
+    Raises Exception with descriptive message on auth errors.
+    """
     headers = {
-        "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
+        "Content-Type":  "application/json",
+    }
+    payload = {
+        "model":       model,
+        "messages":    [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+        "max_tokens":  max_tokens,
+        "temperature": 0.7,
+        "stream":      stream,
     }
 
-    last_error = ""
-    for model in models_to_try:
+    models_to_try = _resolve_model(model)
+    last_error    = ""
+
+    for m in models_to_try:
+        payload["model"] = m
         try:
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1500,
-                "temperature": 0.1,
-            }
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                f"{XAI_API_BASE}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=45,
+                timeout=120,
+                stream=stream,
             )
             if resp.status_code == 200:
-                data = resp.json()
-                return data["choices"][0]["message"]["content"].strip(), model
+                return resp
             elif resp.status_code == 404:
-                # Model not found — try next
-                last_error = f"Model {model} not found (404)"
+                last_error = f"Model '{m}' not found (404)"
                 continue
-            elif resp.status_code == 403:
-                # Auth error — no point trying other models
+            elif resp.status_code in (401, 403):
                 try:
-                    err_body = resp.json()
-                    err_msg = err_body.get("error", {}).get("message", resp.text[:200])
+                    body   = resp.json()
+                    detail = body.get("error", {}).get("message", resp.text[:300])
                 except Exception:
-                    err_msg = resp.text[:200]
-                raise Exception(f"403 Forbidden — API key invalid or no access. Detail: {err_msg}")
-            elif resp.status_code == 401:
-                raise Exception(f"401 Unauthorized — check your XAI_API_KEY in Streamlit Secrets")
+                    detail = resp.text[:300]
+                raise Exception(
+                    f"HTTP {resp.status_code} — API key invalid or no access.\n"
+                    f"Detail: {detail}\n"
+                    f"Check XAI_API_KEY in Streamlit Secrets. Get a key at console.x.ai → API Keys."
+                )
+            elif resp.status_code == 429:
+                raise Exception("Rate limit exceeded (429). Wait a moment and try again.")
             else:
                 try:
-                    err_body = resp.json()
-                    err_msg = err_body.get("error", {}).get("message", resp.text[:300])
+                    body   = resp.json()
+                    detail = body.get("error", {}).get("message", resp.text[:300])
                 except Exception:
-                    err_msg = resp.text[:300]
-                last_error = f"HTTP {resp.status_code}: {err_msg}"
+                    detail = resp.text[:300]
+                last_error = f"HTTP {resp.status_code}: {detail}"
                 continue
         except requests.exceptions.Timeout:
-            last_error = f"Timeout on model {model}"
+            last_error = f"Timeout on model {m}"
             continue
         except Exception as e:
-            if "403" in str(e) or "401" in str(e):
-                raise  # Re-raise auth errors immediately
+            if "401" in str(e) or "403" in str(e) or "API key" in str(e):
+                raise
             last_error = str(e)
             continue
 
+    raise Exception(f"All Grok models failed. Last error: {last_error}")
+
+
+def stream_grok(api_key: str, model: str, system_prompt: str, user_prompt: str,
+                max_tokens: int = 2048):
+    """Stream response tokens from xAI Grok, yielding text chunks."""
+    resp = call_grok(api_key, model, system_prompt, user_prompt, max_tokens, stream=True)
+    for line in resp.iter_lines():
+        if line:
+            decoded = line.decode("utf-8")
+            if decoded.startswith("data: "):
+                data = decoded[6:]
+                if data == "[DONE]": break
+                try:
+                    chunk = json.loads(data)
+                    delta = chunk["choices"][0]["delta"].get("content", "")
+                    if delta: yield delta
+                except Exception:
+                    continue
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PDF AUTO-FILL HELPERS  (uses call_grok above)
+# ══════════════════════════════════════════════════════════════════════
+
+def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 12000) -> str:
+    """Extract plain text from PDF bytes using PyMuPDF. Returns up to max_chars."""
+    try:
+        import fitz  # PyMuPDF
+        doc   = fitz.open(stream=pdf_bytes, filetype="pdf")
+        parts = []
+        total = 0
+        for page in doc:
+            t = page.get_text("text")
+            parts.append(t)
+            total += len(t)
+            if total >= max_chars:
+                break
+        doc.close()
+        text = "\n".join(parts)[:max_chars]
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def _call_xai(api_key: str, prompt: str):
+    """
+    Single-turn xAI call for PDF parsing (no system prompt needed).
+    Reuses call_grok with an empty system prompt and returns (text, model_used).
+    """
+    # Use a neutral system prompt for JSON extraction tasks
+    sys_prompt = "You are a financial document analyst. Return only valid JSON as instructed."
+    # Try each model; call_grok handles fallback internally
+    models_to_try = _XAI_MODELS_FALLBACK[:]
+    last_error    = ""
+    for m in models_to_try:
+        try:
+            resp      = call_grok(api_key, m, sys_prompt, prompt,
+                                  max_tokens=1500, stream=False)
+            raw       = resp.json()["choices"][0]["message"]["content"].strip()
+            return raw, m
+        except Exception as e:
+            err = str(e)
+            if "401" in err or "403" in err or "API key" in err:
+                raise
+            last_error = err
+            continue
     raise Exception(f"All models failed. Last error: {last_error}")
 
 
 def _parse_report_with_grok(pdf_text: str, broker_houses: list, categories: list) -> dict:
     """
-    Send extracted PDF text to Grok (xAI) and get structured JSON back.
-    Uses the OpenAI-compatible API at https://api.x.ai/v1
+    Send extracted PDF text to xAI Grok and get structured JSON back.
     Returns a dict with all form fields pre-filled, or {"_error": "..."}.
     """
-    import json as _json
-
-    # ── Get API key ───────────────────────────────────────────────────
+    # ── Get API key ────────────────────────────────────────────────────
     api_key = _get_api_key()
     if not api_key:
         return {"_error": "no_api_key"}
 
-    # ── Build prompt ──────────────────────────────────────────────────
+    # ── Build prompt ───────────────────────────────────────────────────
     broker_list = ", ".join(broker_houses)
     cat_list    = ", ".join(categories)
 
@@ -1241,13 +1318,12 @@ Report text:
                 raw = raw[4:]
         raw = raw.strip()
 
-        parsed = _json.loads(raw)
-        parsed["_model_used"] = model_used  # store for display
+        parsed = json.loads(raw)
+        parsed["_model_used"] = model_used
         return parsed
 
     except Exception as e:
         return {"_error": str(e)}
-
 
 def admin_research():
     st.markdown('<div class="section-header">📄 Research Reports</div>', unsafe_allow_html=True)
