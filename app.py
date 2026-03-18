@@ -261,7 +261,7 @@ def init_db():
         embed_code TEXT,
         duration TEXT, posted_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    # Research reports — stored as parsed text + metadata, not downloadable files
+    # Research reports — PDF stored as BLOB, rendered inline (no download)
     c.execute("""CREATE TABLE IF NOT EXISTS research_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -272,16 +272,14 @@ def init_db():
         target_price REAL,
         current_price REAL,
         upside_pct REAL,
-        rating TEXT,
-        summary TEXT,
-        key_points TEXT,
-        risks TEXT,
-        financials TEXT,
         analyst TEXT,
         report_date TEXT,
         sector TEXT,
         tags TEXT,
+        notes TEXT,
         visible_to TEXT DEFAULT 'all',
+        pdf_data BLOB,
+        pdf_filename TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
     # Broker buy/sell calls (structured table)
     c.execute("""CREATE TABLE IF NOT EXISTS broker_calls (
@@ -449,105 +447,159 @@ def render_bar_chart(title, labels, values, colors):
     }})();</script>""", height=260)
 
 # ══════════════════════════════════════════════════════════════════════
-# REPORT VIEWER (non-downloadable parsed content)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# REPORT METADATA CARD + PDF VIEWER
 # ══════════════════════════════════════════════════════════════════════
 
-def render_report_card(r, show_full=False):
-    """Renders a research report as parsed, non-downloadable content."""
+import base64
+
+def render_report_meta(r):
+    """Renders the metadata header strip for a research report."""
     ct_color = {"BUY": "#00ffb4", "SELL": "#ff6b6b", "HOLD": "#ffd700",
-                "ACCUMULATE": "#00ddff", "NEUTRAL": "#9d8ab5"}.get((r['call_type'] or "").upper(), "#9d8ab5")
-    upside_str = ""
-    if r['upside_pct'] is not None:
-        up_color = "#00ffb4" if r['upside_pct'] >= 0 else "#ff6b6b"
-        upside_str = f'<span style="color:{up_color};font-weight:700;font-size:14px">{r["upside_pct"]:+.1f}% upside</span>'
-
-    kp_html = ""
-    if r['key_points']:
-        pts = [p.strip() for p in r['key_points'].split('\n') if p.strip()]
-        kp_html = "<ul style='color:#c0d0e0;font-size:14px;line-height:1.9;margin:10px 0 0 16px;padding:0'>" + \
-                  "".join(f"<li>{p}</li>" for p in pts) + "</ul>"
-
-    risks_html = ""
-    if r['risks'] and show_full:
-        risks_pts = [p.strip() for p in r['risks'].split('\n') if p.strip()]
-        risks_html = f"""
-        <div style="margin-top:16px;background:#ff6b6b08;border:1px solid #ff6b6b22;border-radius:8px;padding:14px">
-          <div style="font-size:11px;color:#ff6b6b;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-weight:700">⚠️ Key Risks</div>
-          <ul style='color:#c0d0e0;font-size:13px;line-height:1.8;margin:0 0 0 16px;padding:0'>
-            {"".join(f"<li>{p}</li>" for p in risks_pts)}
-          </ul>
-        </div>"""
-
-    fin_html = ""
-    if r['financials'] and show_full:
-        fin_html = f"""
-        <div style="margin-top:14px;background:#00ffb408;border:1px solid #00ffb422;border-radius:8px;padding:14px">
-          <div style="font-size:11px;color:#00ffb4;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-weight:700">📊 Financials / Estimates</div>
-          <div style="color:#c0d0e0;font-size:13px;line-height:1.8;white-space:pre-wrap">{r['financials']}</div>
-        </div>"""
-
+                "ACCUMULATE": "#00ddff", "REDUCE": "#ff8c42",
+                "NEUTRAL": "#9d8ab5", "UNDERPERFORM": "#ff6b6b"}.get(
+                    (r.get('call_type') or "").upper(), "#9d8ab5")
+    upside_html = ""
+    if r.get('upside_pct') is not None:
+        up_col = "#00ffb4" if r['upside_pct'] >= 0 else "#ff6b6b"
+        upside_html = f'<div style="background:{up_col}18;border:1px solid {up_col}44;border-radius:8px;padding:10px 16px;text-align:center"><div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Upside</div><div style="font-size:18px;font-weight:700;color:{up_col}">{r["upside_pct"]:+.1f}%</div></div>'
+    tags_html = " ".join(
+        f'<span style="background:#a855f718;color:#c084fc;border:1px solid #a855f730;border-radius:20px;font-size:10px;padding:2px 10px;font-weight:600">{t.strip()}</span>'
+        for t in (r.get("tags") or "").split(",") if t.strip()
+    )
     st.markdown(f"""
     <div class="report-card">
       <div style="position:absolute;top:0;left:0;right:0;height:3px;
            background:linear-gradient(90deg,transparent,{ct_color},transparent);"></div>
-
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div>
-          <div style="font-size:22px;font-weight:800;color:#fff;font-family:'Plus Jakarta Sans',sans-serif">{r['symbol'] or '—'}</div>
-          <div style="font-size:12px;color:#6b5a8a;margin-top:3px">{r['sector'] or ''}</div>
+          <div style="font-size:22px;font-weight:800;color:#fff">{r.get('symbol') or '—'}
+            <span style="background:{ct_color}22;color:{ct_color};border:1px solid {ct_color}55;
+                  border-radius:20px;padding:3px 12px;font-size:12px;font-weight:700;
+                  margin-left:10px;letter-spacing:1px;text-transform:uppercase;vertical-align:middle">{r.get('call_type') or '—'}</span>
+          </div>
+          <div style="font-size:12px;color:#6b5a8a;margin-top:4px">{r.get('sector') or ''} &nbsp;·&nbsp; {r.get('category') or ''}</div>
         </div>
         <div style="text-align:right">
-          <span style="background:{ct_color}22;color:{ct_color};border:1px solid {ct_color}55;
-                border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700;
-                letter-spacing:1px;text-transform:uppercase">{r['call_type'] or '—'}</span>
-          <div style="font-size:11px;color:#445566;margin-top:6px">{r['report_date'] or ''}</div>
+          <div style="font-size:13px;font-weight:700;color:#c084fc">{r.get('broker_house') or '—'}</div>
+          <div style="font-size:11px;color:#445566;margin-top:4px">{r.get('report_date') or ''}</div>
+          {f'<div style="font-size:11px;color:#9d8ab5;margin-top:3px">Analyst: {r["analyst"]}</div>' if r.get('analyst') else ''}
         </div>
       </div>
-
-      <div style="margin-top:14px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:8px;padding:10px 16px;text-align:center">
-          <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Current</div>
-          <div style="font-size:18px;font-weight:700;color:#fff">₹{r['current_price'] or '—'}</div>
+          <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">CMP</div>
+          <div style="font-size:18px;font-weight:700;color:#fff">{'₹'+str(r['current_price']) if r.get('current_price') else '—'}</div>
         </div>
         <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:8px;padding:10px 16px;text-align:center">
           <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Target</div>
-          <div style="font-size:18px;font-weight:700;color:{ct_color}">₹{r['target_price'] or '—'}</div>
+          <div style="font-size:18px;font-weight:700;color:{ct_color}">{'₹'+str(r['target_price']) if r.get('target_price') else '—'}</div>
         </div>
-        {f'<div>{upside_str}</div>' if upside_str else ''}
-        <div style="background:#a855f710;border:1px solid #a855f730;border-radius:8px;padding:10px 16px;text-align:center">
-          <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Broker</div>
-          <div style="font-size:13px;font-weight:700;color:#c084fc">{r['broker_house'] or '—'}</div>
-        </div>
-        <div style="background:#7b61ff10;border:1px solid #7b61ff30;border-radius:8px;padding:10px 16px;text-align:center">
-          <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1px">Category</div>
-          <div style="font-size:12px;font-weight:600;color:#9d8ab5">{r['category'] or '—'}</div>
-        </div>
+        {upside_html}
       </div>
-
-      <div style="margin-top:16px">
-        <div style="font-size:11px;color:#445566;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">📄 Report Title</div>
-        <div style="font-size:16px;font-weight:700;color:#e2d9f3">{r['title']}</div>
-      </div>
-
-      {f'<div style="margin-top:14px"><div style="font-size:11px;color:#445566;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">📝 Summary</div><div style="color:#c0d0e0;font-size:14px;line-height:1.8">{r["summary"]}</div></div>' if r['summary'] else ''}
-
-      {f'<div style="margin-top:14px"><div style="font-size:11px;color:#445566;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">🔑 Key Points</div>{kp_html}</div>' if kp_html else ''}
-
-      {risks_html}
-      {fin_html}
-
-      {f'<div style="margin-top:12px;font-size:12px;color:#445566">Analyst: <span style="color:#9d8ab5">{r["analyst"]}</span></div>' if r['analyst'] and show_full else ''}
-
-      <div style="margin-top:16px;padding-top:12px;border-top:1px solid #1a1030;
-           display:flex;gap:8px;flex-wrap:wrap">
-        {" ".join(f'<span style="background:#a855f718;color:#c084fc;border:1px solid #a855f730;border-radius:20px;font-size:10px;padding:2px 10px;font-weight:600">{t.strip()}</span>' for t in (r["tags"] or "").split(",") if t.strip())}
-      </div>
-
+      {f'<div style="margin-top:12px;font-size:13px;color:#6b5a8a">{r["notes"]}</div>' if r.get('notes') else ''}
+      {f'<div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">{tags_html}</div>' if tags_html else ''}
       <div style="margin-top:10px;font-size:10px;color:#3b2d55;letter-spacing:1px">
-        🔒 Content is for viewing only · Download disabled
+        🔒 PDF view-only · Right-click and print/save shortcuts disabled
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def render_pdf_viewer(pdf_bytes, report_id):
+    """
+    Renders a PDF inline using PDF.js via a sandboxed iframe.
+    The PDF is embedded as a base64 data URI — no raw file URL is ever exposed.
+    Download / print shortcuts are blocked. Context menu is disabled.
+    """
+    b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    viewer_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:#0c0a18; overflow:hidden; font-family:sans-serif; }}
+  #pdf-wrap {{ position:relative; width:100%; height:760px; user-select:none; -webkit-user-select:none; }}
+  #pdf-canvas-container {{
+    width:100%; height:760px; overflow-y:auto; background:#1a1530;
+    scrollbar-width:thin; scrollbar-color:#3d1f6b #0c0a18;
+  }}
+  canvas {{ display:block; margin:8px auto; box-shadow:0 4px 20px #00000066; }}
+  #no-right-click {{ position:absolute; top:40px; left:0; right:0; bottom:0; z-index:100; background:transparent; }}
+  #toolbar {{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    background:#130d22; border-bottom:1px solid #2d1f4e; padding:7px 12px; height:40px;
+  }}
+  #toolbar button {{
+    background:#3d1f6b; color:#c084fc; border:1px solid #5b2fa0;
+    border-radius:6px; padding:3px 11px; font-size:12px; cursor:pointer;
+  }}
+  #toolbar button:hover {{ background:#5b2fa0; }}
+  #page-info {{ color:#6b5a8a; font-size:11px; }}
+  #lock-badge {{
+    margin-left:auto; background:#ff6b6b18; color:#ff9999; border:1px solid #ff6b6b33;
+    border-radius:12px; padding:2px 10px; font-size:10px; font-weight:600;
+    letter-spacing:1px; text-transform:uppercase;
+  }}
+  #loading {{ color:#6b5a8a; font-size:13px; text-align:center; padding:40px; }}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button onclick="prevPage()">&#9664; Prev</button>
+  <button onclick="nextPage()">Next &#9654;</button>
+  <button onclick="zoomIn()">&#65291; Zoom</button>
+  <button onclick="zoomOut()">&#65293; Zoom</button>
+  <span id="page-info">Loading...</span>
+  <span id="lock-badge">&#128274; View Only</span>
+</div>
+<div id="pdf-wrap">
+  <div id="pdf-canvas-container"><div id="loading">Loading PDF...</div></div>
+  <div id="no-right-click" oncontextmenu="return false;"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const B64   = "{b64}";
+  const raw   = atob(B64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  let pdfDoc = null, pageNum = 1, scale = 1.35;
+  const cont = document.getElementById('pdf-canvas-container');
+  function renderPage(n) {{
+    pdfDoc.getPage(n).then(page => {{
+      cont.innerHTML = '';
+      const vp = page.getViewport({{ scale }});
+      const cv = document.createElement('canvas');
+      cv.width = vp.width; cv.height = vp.height;
+      cont.appendChild(cv);
+      page.render({{ canvasContext: cv.getContext('2d'), viewport: vp }});
+      document.getElementById('page-info').textContent = 'Page ' + n + ' / ' + pdfDoc.numPages;
+    }});
+  }}
+  pdfjsLib.getDocument({{ data: bytes }}).promise.then(pdf => {{
+    pdfDoc = pdf; renderPage(1);
+  }}).catch(e => {{
+    cont.innerHTML = '<div style="color:#ff6b6b;padding:30px">Error loading PDF: ' + e.message + '</div>';
+  }});
+  function prevPage() {{ if (pageNum > 1) {{ pageNum--; renderPage(pageNum); }} }}
+  function nextPage() {{ if (pdfDoc && pageNum < pdfDoc.numPages) {{ pageNum++; renderPage(pageNum); }} }}
+  function zoomIn()  {{ scale = Math.min(scale + 0.2, 3.2); renderPage(pageNum); }}
+  function zoomOut() {{ scale = Math.max(scale - 0.2, 0.5); renderPage(pageNum); }}
+  document.addEventListener('keydown', e => {{
+    if ((e.ctrlKey || e.metaKey) && ['p','s','u','a'].includes(e.key.toLowerCase())) {{
+      e.preventDefault(); return false;
+    }}
+  }});
+  document.addEventListener('contextmenu', e => e.preventDefault());
+</script>
+</body>
+</html>"""
+    st.components.v1.html(viewer_html, height=810, scrolling=False)
 
 
 def render_broker_call_card(r):
@@ -762,77 +814,115 @@ def admin_login():
 
 def admin_research():
     st.markdown('<div class="section-header">📄 Research Reports</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Add broker house reports as parsed content (non-downloadable)</div>', unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["➕ Add Report", "📋 All Reports", "🏦 Broker Calls"])
+    st.markdown('<div class="section-sub">Upload broker PDFs — displayed inline, no download for members</div>', unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["➕ Upload Report", "📋 All Reports", "🏦 Broker Calls"])
 
     with tab1:
-        st.markdown("##### Add Research Report (Parsed Text — No File Upload)")
+        st.markdown("##### Upload Broker Research PDF")
+        st.markdown("""
+        <div style="background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#9d8ab5;line-height:1.8">
+        <b style="color:#c084fc">How it works:</b> Upload a PDF from any broker house. It is stored in the database
+        and rendered page-by-page using an embedded viewer. Members cannot download, print or right-click save the PDF.
+        Max recommended PDF size: <b style="color:#ffd700">10 MB</b>.
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded_pdf = st.file_uploader(
+            "Select PDF file *", type=["pdf"],
+            help="PDF will be stored securely and shown inline to members"
+        )
+
         with st.form("report_form"):
             c1, c2, c3 = st.columns(3)
             with c1:
-                title       = st.text_input("Report Title *")
-                broker      = st.selectbox("Broker House *", BROKER_HOUSES)
-                category    = st.selectbox("Category *", REPORT_CATEGORIES)
-                symbol      = st.text_input("Stock Symbol", placeholder="RELIANCE, NIFTY...")
-                sector      = st.text_input("Sector", placeholder="Banking, IT, Auto...")
+                title     = st.text_input("Report Title *")
+                broker    = st.selectbox("Broker House *", BROKER_HOUSES)
+                category  = st.selectbox("Category *", REPORT_CATEGORIES)
+                symbol    = st.text_input("Stock Symbol", placeholder="RELIANCE, NIFTY...")
+                sector    = st.text_input("Sector", placeholder="Banking, IT, Auto...")
             with c2:
-                call_type   = st.selectbox("Rating / Call", ["BUY","SELL","HOLD","ACCUMULATE","REDUCE","NEUTRAL","UNDERPERFORM"])
-                target_price   = st.number_input("Target Price ₹", min_value=0.0, step=0.5)
-                current_price  = st.number_input("Current Price ₹", min_value=0.0, step=0.5)
-                analyst        = st.text_input("Analyst Name")
-                report_date    = st.date_input("Report Date", value=date.today())
+                call_type     = st.selectbox("Rating / Call", ["BUY","SELL","HOLD","ACCUMULATE","REDUCE","NEUTRAL","UNDERPERFORM"])
+                target_price  = st.number_input("Target Price ₹", min_value=0.0, step=0.5)
+                current_price = st.number_input("Current Price ₹", min_value=0.0, step=0.5)
+                analyst       = st.text_input("Analyst Name")
+                report_date   = st.date_input("Report Date", value=date.today())
             with c3:
-                upside_pct  = round(((target_price - current_price) / current_price * 100), 2) if current_price and target_price else None
+                upside_pct = round(((target_price - current_price) / current_price * 100), 2) if current_price and target_price else None
                 if upside_pct is not None:
                     color = "#00ffb4" if upside_pct >= 0 else "#ff6b6b"
-                    st.markdown(f'<div style="margin-top:28px;background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:16px;text-align:center"><div style="font-size:11px;color:#445566;text-transform:uppercase;letter-spacing:1px">Upside / Downside</div><div style="font-size:28px;font-weight:800;color:{color};margin-top:6px">{upside_pct:+.1f}%</div></div>', unsafe_allow_html=True)
-                tags         = st.text_input("Tags", placeholder="largecap, Q3, results...")
-                visible_to   = st.selectbox("Visible To", ["all","equity","options"])
+                    st.markdown(f'<div style="margin-top:28px;background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:16px;text-align:center"><div style="font-size:11px;color:#445566;text-transform:uppercase">Upside / Downside</div><div style="font-size:28px;font-weight:800;color:{color};margin-top:6px">{upside_pct:+.1f}%</div></div>', unsafe_allow_html=True)
+                tags       = st.text_input("Tags", placeholder="largecap, Q3, results...")
+                visible_to = st.selectbox("Visible To", ["all","equity","options"])
+            notes = st.text_area("Notes / Summary (optional)", height=80,
+                placeholder="Brief context about this report shown above the PDF viewer...")
 
-            summary    = st.text_area("Executive Summary *", height=120, placeholder="2-4 sentence overview of the report...")
-            key_points = st.text_area("Key Investment Points", height=130,
-                placeholder="Enter each point on a new line:\n• Strong revenue growth of 18% YoY\n• Margin expansion expected\n• New product launches in Q4")
-            risks      = st.text_area("Key Risks", height=80,
-                placeholder="Each risk on a new line:\n• Regulatory changes\n• Raw material cost pressure")
-            financials = st.text_area("Financials / Estimates (Optional)", height=100,
-                placeholder="Revenue FY25E: ₹1,200 Cr | PAT: ₹180 Cr | EPS: ₹45 | P/E: 22x")
-
-            if st.form_submit_button("Save Report →", use_container_width=True):
-                if not title or not broker or not summary:
-                    st.error("Title, broker house, and summary are required.")
+            if st.form_submit_button("Upload & Save Report →", use_container_width=True):
+                if not title or not broker:
+                    st.error("Title and broker house are required.")
+                elif uploaded_pdf is None:
+                    st.error("Please select a PDF file to upload.")
                 else:
-                    conn = get_conn()
-                    conn.execute("""INSERT INTO research_reports
-                        (title,broker_house,category,symbol,call_type,target_price,current_price,
-                         upside_pct,rating,summary,key_points,risks,financials,analyst,
-                         report_date,sector,tags,visible_to)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (title, broker, category, symbol.upper().strip() if symbol else None,
-                         call_type, target_price or None, current_price or None, upside_pct,
-                         call_type, summary, key_points, risks, financials, analyst,
-                         str(report_date), sector, tags, visible_to))
-                    conn.commit(); conn.close()
-                    st.success(f"✅ Report '{title}' saved.")
+                    pdf_bytes = uploaded_pdf.read()
+                    size_mb   = len(pdf_bytes) / (1024 * 1024)
+                    if size_mb > 15:
+                        st.error(f"PDF is {size_mb:.1f} MB — please keep under 15 MB.")
+                    else:
+                        conn = get_conn()
+                        conn.execute("""INSERT INTO research_reports
+                            (title, broker_house, category, symbol, call_type,
+                             target_price, current_price, upside_pct, analyst,
+                             report_date, sector, tags, notes, visible_to,
+                             pdf_data, pdf_filename)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (title, broker, category,
+                             symbol.upper().strip() if symbol else None,
+                             call_type, target_price or None, current_price or None,
+                             upside_pct, analyst, str(report_date), sector, tags, notes,
+                             visible_to, pdf_bytes, uploaded_pdf.name))
+                        conn.commit(); conn.close()
+                        st.success(f"✅ '{title}' uploaded ({size_mb:.2f} MB) — available to members immediately.")
 
     with tab2:
         conn = get_conn()
         f1, f2, f3 = st.columns(3)
-        broker_f   = f1.selectbox("Broker", ["All"] + BROKER_HOUSES)
-        cat_f      = f2.selectbox("Category", ["All"] + REPORT_CATEGORIES)
-        call_f     = f3.selectbox("Rating", ["All","BUY","SELL","HOLD","ACCUMULATE","NEUTRAL"])
-        q = "SELECT * FROM research_reports WHERE 1=1"
+        broker_f = f1.selectbox("Broker", ["All"] + BROKER_HOUSES, key="adm_broker_f")
+        cat_f    = f2.selectbox("Category", ["All"] + REPORT_CATEGORIES, key="adm_cat_f")
+        call_f   = f3.selectbox("Rating", ["All","BUY","SELL","HOLD","ACCUMULATE","NEUTRAL"], key="adm_call_f")
+        # Fetch without pdf_data for listing (keep it fast)
+        q = """SELECT id, title, broker_house, category, symbol, call_type,
+                      target_price, current_price, upside_pct, analyst,
+                      report_date, sector, tags, notes, visible_to, pdf_filename,
+                      created_at,
+                      CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
+               FROM research_reports WHERE 1=1"""
         params = []
         if broker_f != "All": q += " AND broker_house=?"; params.append(broker_f)
         if cat_f    != "All": q += " AND category=?";    params.append(cat_f)
         if call_f   != "All": q += " AND call_type=?";   params.append(call_f)
         q += " ORDER BY created_at DESC"
-        rows = conn.execute(q, params).fetchall(); conn.close()
+        rows = conn.execute(q, params).fetchall()
+        conn.close()
         st.markdown(f"**{len(rows)} report(s)** found")
         for r in rows:
-            with st.expander(f"[{r['broker_house']}] {r['title']} — {r['symbol'] or '—'} | {r['call_type']} | {r['report_date']}"):
-                render_report_card(dict(r), show_full=True)
+            pdf_badge = "📄 PDF" if r['has_pdf'] else "⚠️ No PDF"
+            with st.expander(f"[{r['broker_house']}] {r['symbol'] or '—'} — {r['call_type']} | {r['title'][:55]} | {r['report_date']}  {pdf_badge}"):
+                render_report_meta(dict(r))
+                if r['has_pdf']:
+                    if st.button("👁️ Preview PDF", key=f"prev_{r['id']}"):
+                        st.session_state[f"show_pdf_{r['id']}"] = not st.session_state.get(f"show_pdf_{r['id']}", False)
+                    if st.session_state.get(f"show_pdf_{r['id']}"):
+                        conn2 = get_conn()
+                        pdf_row = conn2.execute("SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                        conn2.close()
+                        if pdf_row and pdf_row['pdf_data']:
+                            render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
+                else:
+                    st.warning("No PDF uploaded for this report.")
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
                 if st.button("🗑️ Delete Report", key=f"dr_{r['id']}"):
-                    conn2 = get_conn(); conn2.execute("DELETE FROM research_reports WHERE id=?", (r['id'],)); conn2.commit(); conn2.close(); st.rerun()
+                    conn2 = get_conn()
+                    conn2.execute("DELETE FROM research_reports WHERE id=?", (r['id'],))
+                    conn2.commit(); conn2.close(); st.rerun()
 
     with tab3:
         st.markdown("##### 🏦 Broker Buy/Sell Calls (Structured)")
@@ -1336,7 +1426,7 @@ def admin_performance():
 
 def member_research(member):
     st.markdown('<div class="section-header">📄 Research Hub</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Broker research reports & buy/sell calls — view only, no download</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Broker research reports & buy/sell calls — PDF viewer, no download</div>', unsafe_allow_html=True)
     tab1, tab2 = st.tabs(["📋 Research Reports", "🏦 Broker Calls"])
 
     with tab1:
@@ -1346,22 +1436,49 @@ def member_research(member):
         cat_f    = f2.selectbox("Category", ["All"] + REPORT_CATEGORIES, key="m_cat_f")
         call_f   = f3.selectbox("Rating", ["All","BUY","SELL","HOLD","ACCUMULATE","NEUTRAL"], key="m_call_f")
         sym_f    = f4.text_input("Symbol", placeholder="RELIANCE...", key="m_sym_f")
-        q = "SELECT * FROM research_reports WHERE (visible_to='all' OR visible_to=?)"
-        params = [st.session_state.get("active_portal","equity")]
+
+        # Fetch metadata only (no pdf_data blob) for the listing
+        q = """SELECT id, title, broker_house, category, symbol, call_type,
+                      target_price, current_price, upside_pct, analyst,
+                      report_date, sector, tags, notes, visible_to, pdf_filename,
+                      CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END AS has_pdf
+               FROM research_reports
+               WHERE (visible_to='all' OR visible_to=?)"""
+        params = [st.session_state.get("active_portal", "equity")]
         if broker_f != "All": q += " AND broker_house=?";  params.append(broker_f)
         if cat_f    != "All": q += " AND category=?";      params.append(cat_f)
         if call_f   != "All": q += " AND call_type=?";     params.append(call_f)
         if sym_f.strip():     q += " AND symbol LIKE ?";   params.append(f"%{sym_f.upper().strip()}%")
         q += " ORDER BY created_at DESC"
-        rows = conn.execute(q, params).fetchall(); conn.close()
+        rows = conn.execute(q, params).fetchall()
+        conn.close()
 
         if not rows:
-            st.info("No research reports available yet. Reports will appear here as the admin adds them.")
+            st.info("No research reports available yet.")
         else:
-            st.markdown(f'<div style="font-size:12px;color:#445566;margin-bottom:12px">{len(rows)} report(s) found</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:12px;color:#445566;margin-bottom:16px">{len(rows)} report(s) found</div>', unsafe_allow_html=True)
             for r in rows:
-                with st.expander(f"[{r['broker_house']}] {r['symbol'] or '—'} — {r['call_type']} | {r['title'][:60]} | {r['report_date']}"):
-                    render_report_card(dict(r), show_full=True)
+                r = dict(r)
+                ct_color = {"BUY":"#00ffb4","SELL":"#ff6b6b","HOLD":"#ffd700","ACCUMULATE":"#00ddff","NEUTRAL":"#9d8ab5"}.get((r.get('call_type') or "").upper(),"#9d8ab5")
+                lbl = f"[{r['broker_house']}]  {r['symbol'] or '—'}  ·  {r['call_type']}  ·  {r['title'][:50]}  ·  {r['report_date']}"
+                with st.expander(lbl):
+                    render_report_meta(r)
+                    if r['has_pdf']:
+                        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                        view_key = f"view_pdf_{r['id']}"
+                        if st.button("📖 Open PDF Viewer", key=f"opv_{r['id']}", use_container_width=False):
+                            st.session_state[view_key] = not st.session_state.get(view_key, False)
+                        if st.session_state.get(view_key, False):
+                            st.markdown('<div style="margin-top:8px;font-size:11px;color:#3b2d55;letter-spacing:1px">🔒 PDF is displayed in secure viewer · Saving or downloading is not permitted</div>', unsafe_allow_html=True)
+                            conn2 = get_conn()
+                            pdf_row = conn2.execute("SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                            conn2.close()
+                            if pdf_row and pdf_row['pdf_data']:
+                                render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
+                            else:
+                                st.error("PDF not found in database.")
+                    else:
+                        st.info("PDF not yet uploaded for this report.")
 
     with tab2:
         conn = get_conn()
