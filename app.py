@@ -1129,7 +1129,10 @@ def admin_research():
                 else:
                     st.warning("No PDF uploaded for this report.")
                 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                if st.button("🗑️ Delete Report", key=f"dr_{r['id']}"):
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                del_col1, del_col2 = st.columns([3, 1])
+                del_col1.markdown('<div style="font-size:11px;color:#445566;padding-top:8px">⚠️ Deleting a report removes its PDF permanently.</div>', unsafe_allow_html=True)
+                if del_col2.button("🗑️ Delete Report", key=f"dr_{r['id']}", use_container_width=True):
                     conn2 = get_conn()
                     conn2.execute("DELETE FROM research_reports WHERE id=?", (r['id'],))
                     conn2.commit(); conn2.close(); st.rerun()
@@ -1191,12 +1194,17 @@ def admin_research():
             conn.close()
             for r in bc_rows:
                 render_broker_call_card(dict(r))
-                bc1a, bc2a = st.columns(2)
-                new_st = bc1a.selectbox("Status", ["Active","Target Hit","Stop Hit","Closed"], key=f"bcs_{r['id']}")
-                if bc2a.button("Update / Delete", key=f"bcu_{r['id']}"):
-                    conn2 = get_conn(); conn2.execute("UPDATE broker_calls SET status=? WHERE id=?", (new_st, r['id'])); conn2.commit(); conn2.close(); st.rerun()
-                if st.button("🗑️ Delete", key=f"bcd_{r['id']}"):
-                    conn2 = get_conn(); conn2.execute("DELETE FROM broker_calls WHERE id=?", (r['id'],)); conn2.commit(); conn2.close(); st.rerun()
+                bc1a, bc2a, bc2b = st.columns([4, 2, 1])
+                new_st = bc1a.selectbox("Update Status", ["Active","Target Hit","Stop Hit","Closed"], key=f"bcs_{r['id']}")
+                if bc2a.button("✅ Update Status", key=f"bcu_{r['id']}", use_container_width=True):
+                    conn2 = get_conn()
+                    conn2.execute("UPDATE broker_calls SET status=? WHERE id=?", (new_st, r['id']))
+                    conn2.commit(); conn2.close(); st.rerun()
+                if bc2b.button("🗑️", key=f"bcd_{r['id']}", help="Delete this broker call", use_container_width=True):
+                    conn2 = get_conn()
+                    conn2.execute("DELETE FROM broker_calls WHERE id=?", (r['id'],))
+                    conn2.commit(); conn2.close(); st.rerun()
+                st.markdown("<hr style='border-color:#1a1030;margin:4px 0 8px'>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
 # ADMIN PAGES
@@ -1250,7 +1258,7 @@ def admin_dashboard():
 def admin_equity():
     st.markdown('<div class="section-header">📊 Equity Calls</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Post, manage and close equity positions</div>', unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["➕ New Call","📋 Open Positions","📁 History"])
+    tab1, tab2, tab3, tab4 = st.tabs(["➕ New Call","📋 Open Positions","📁 History","🔧 Manage All"])
     with tab1:
         with st.form("eq_form"):
             c1, c2 = st.columns(2)
@@ -1293,13 +1301,16 @@ def admin_equity():
                 c1.metric("Entry",f"₹{r['entry_price']}"); c2.metric("Target 1",f"₹{r['target1']}")
                 c3.metric("Stop Loss",f"₹{r['stop_loss']}"); c4.metric("CMP",f"₹{r['cmp']}" if r['cmp'] else "—")
                 if r['rationale']: st.caption(r['rationale'])
-                ec1,ec2,ec3 = st.columns(3)
+                ec1,ec2,ec3,ec4 = st.columns(4)
                 exit_p = ec1.number_input("Exit ₹", key=f"ep{r['id']}", min_value=0.0)
                 result = ec2.selectbox("Result", ["Target Hit","Stop Hit","Partial","Manual"], key=f"res{r['id']}")
-                if ec3.button("Close", key=f"cl{r['id']}"):
+                if ec3.button("✅ Close", key=f"cl{r['id']}"):
                     pnl = round(((exit_p-r['entry_price'])/r['entry_price']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_price'] else 0
                     conn.execute("UPDATE equity_calls SET status='Closed',exit_price=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
+                if ec4.button("🗑️ Delete", key=f"eq_del{r['id']}"):
+                    conn.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                    conn.commit(); st.rerun()
         conn.close()
     with tab3:
         conn = get_conn()
@@ -1314,14 +1325,68 @@ def admin_equity():
             for r in rows:
                 pc = "#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
                 pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                col_card, col_del = st.columns([10, 1])
+                with col_card:
+                    st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
+                with col_del:
+                    if st.button("🗑️", key=f"eq_hdel{r['id']}", help="Delete this call"):
+                        conn.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                        conn.commit(); st.rerun()
         conn.close()
+    with tab4:
+        st.markdown("##### 🔧 Manage All Equity Calls")
+        st.caption("Search, edit status, reopen or permanently delete any call.")
+        conn = get_conn()
+        sym_search = st.text_input("Search symbol", placeholder="RELIANCE, TCS...", key="eq_mgmt_search")
+        status_f   = st.selectbox("Filter by Status", ["All","Open","Closed"], key="eq_mgmt_status")
+        q_mgmt = "SELECT * FROM equity_calls WHERE 1=1"
+        p_mgmt = []
+        if sym_search.strip(): q_mgmt += " AND symbol LIKE ?"; p_mgmt.append(f"%{sym_search.upper().strip()}%")
+        if status_f != "All":  q_mgmt += " AND status=?";     p_mgmt.append(status_f)
+        q_mgmt += " ORDER BY created_at DESC"
+        all_eq = conn.execute(q_mgmt, p_mgmt).fetchall()
+        conn.close()
+        if not all_eq:
+            st.info("No calls found.")
+        else:
+            st.markdown(f'<div style="font-size:12px;color:#445566;margin-bottom:10px">{len(all_eq)} call(s)</div>', unsafe_allow_html=True)
+            for r in all_eq:
+                pc = "#00ffb4" if r["call_type"]=="BUY" else "#ff6b6b"
+                sc = "#00ffb4" if r["status"]=="Open" else "#445566"
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else ""
+                with st.expander(f"{'🟢' if r['call_type']=='BUY' else '🔴'} {r['symbol']} | {r['status']} | ₹{r['entry_price']} → {pnl_str} | {r['posted_date']}"):
+                    m1,m2,m3,m4 = st.columns(4)
+                    m1.metric("Entry",    f"₹{r['entry_price']}")
+                    m2.metric("Target 1", f"₹{r['target1']}")
+                    m3.metric("SL",       f"₹{r['stop_loss']}")
+                    m4.metric("Exit",     f"₹{r['exit_price']}" if r['exit_price'] else "—")
+                    if r['rationale']: st.caption(f"📝 {r['rationale']}")
+                    act1, act2, act3 = st.columns(3)
+                    # Reopen closed call
+                    if r['status'] == 'Closed':
+                        if act1.button("↩️ Reopen", key=f"eq_reopen{r['id']}", use_container_width=True):
+                            conn2 = get_conn()
+                            conn2.execute("UPDATE equity_calls SET status='Open',exit_price=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
+                            conn2.commit(); conn2.close(); st.success("Reopened!"); st.rerun()
+                    else:
+                        act1.markdown("")
+                    # Edit P&L correction
+                    new_pnl = act2.number_input("Correct P&L %", value=float(r['pnl_pct'] or 0), step=0.1, key=f"eq_pnl{r['id']}", format="%.2f")
+                    if act2.button("💾 Save P&L", key=f"eq_savepnl{r['id']}", use_container_width=True):
+                        conn2 = get_conn()
+                        conn2.execute("UPDATE equity_calls SET pnl_pct=? WHERE id=?", (new_pnl, r['id']))
+                        conn2.commit(); conn2.close(); st.success("P&L updated!"); st.rerun()
+                    # Delete permanently
+                    if act3.button("🗑️ Delete Permanently", key=f"eq_permadel{r['id']}", use_container_width=True):
+                        conn2 = get_conn()
+                        conn2.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                        conn2.commit(); conn2.close(); st.rerun()
 
 
 def admin_options():
     st.markdown('<div class="section-header">⚡ Options & GEX</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Options calls with GEX-driven analysis</div>', unsafe_allow_html=True)
-    tab1, tab2, tab3, tab4 = st.tabs(["➕ Options Call","📊 GEX Weekly","📋 Open","📁 History"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["➕ Options Call","📊 GEX Weekly","📋 Open","📁 History","🔧 Manage All"])
     with tab1:
         with st.form("opt_form"):
             c1, c2 = st.columns(2)
@@ -1374,13 +1439,16 @@ def admin_options():
             with st.expander(f"{'⚡' if r['call_type']=='BUY' else '🔻'} {r['underlying']} {r['strike']} {r['option_type']} | {r['expiry']}"):
                 c1,c2,c3=st.columns(3); c1.metric("Entry",f"₹{r['entry_premium']}"); c2.metric("Target",f"₹{r['target_premium']}"); c3.metric("SL",f"₹{r['stop_premium']}")
                 if r['gex_note']: st.info(f"📊 GEX: {r['gex_note']}")
-                ec1,ec2,ec3=st.columns(3)
+                ec1,ec2,ec3,ec4=st.columns(4)
                 exit_p=ec1.number_input("Exit Premium ₹",key=f"op_ep{r['id']}",min_value=0.0)
                 result=ec2.selectbox("Result",["Target Hit","Stop Hit","Expiry","Manual"],key=f"op_res{r['id']}")
-                if ec3.button("Close",key=f"op_cl{r['id']}"):
+                if ec3.button("✅ Close",key=f"op_cl{r['id']}"):
                     pnl=round(((exit_p-r['entry_premium'])/r['entry_premium']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_premium'] else 0
                     conn.execute("UPDATE options_calls SET status='Closed',exit_premium=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
+                if ec4.button("🗑️ Delete",key=f"op_del{r['id']}"):
+                    conn.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                    conn.commit(); st.rerun()
         conn.close()
     with tab4:
         conn=get_conn()
@@ -1394,8 +1462,57 @@ def admin_options():
             for r in rows:
                 pc="#00ffb4" if (r['pnl_pct'] or 0)>0 else "#ff6b6b"
                 pnl_str=f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else "—"
-                st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>',unsafe_allow_html=True)
+                col_card, col_del = st.columns([10, 1])
+                with col_card:
+                    st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>',unsafe_allow_html=True)
+                with col_del:
+                    if st.button("🗑️", key=f"op_hdel{r['id']}", help="Delete this call"):
+                        conn.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                        conn.commit(); st.rerun()
         conn.close()
+    with tab5:
+        st.markdown("##### 🔧 Manage All Options Calls")
+        st.caption("Search, reopen or permanently delete any options call.")
+        conn = get_conn()
+        und_search = st.text_input("Search underlying", placeholder="NIFTY, BANKNIFTY...", key="op_mgmt_search")
+        status_f2  = st.selectbox("Filter by Status", ["All","Open","Closed"], key="op_mgmt_status")
+        q_mgmt2 = "SELECT * FROM options_calls WHERE 1=1"
+        p_mgmt2 = []
+        if und_search.strip(): q_mgmt2 += " AND underlying LIKE ?"; p_mgmt2.append(f"%{und_search.upper().strip()}%")
+        if status_f2 != "All": q_mgmt2 += " AND status=?";          p_mgmt2.append(status_f2)
+        q_mgmt2 += " ORDER BY created_at DESC"
+        all_op = conn.execute(q_mgmt2, p_mgmt2).fetchall()
+        conn.close()
+        if not all_op:
+            st.info("No calls found.")
+        else:
+            st.markdown(f'<div style="font-size:12px;color:#445566;margin-bottom:10px">{len(all_op)} call(s)</div>', unsafe_allow_html=True)
+            for r in all_op:
+                pnl_str = f"{r['pnl_pct']:+.2f}%" if r['pnl_pct'] else ""
+                with st.expander(f"{'⚡' if r['call_type']=='BUY' else '🔻'} {r['underlying']} {r['strike']} {r['option_type']} | {r['expiry']} | {r['status']} | ₹{r['entry_premium']} {pnl_str}"):
+                    m1,m2,m3,m4 = st.columns(4)
+                    m1.metric("Entry",  f"₹{r['entry_premium']}")
+                    m2.metric("Target", f"₹{r['target_premium']}")
+                    m3.metric("SL",     f"₹{r['stop_premium']}")
+                    m4.metric("Exit",   f"₹{r['exit_premium']}" if r['exit_premium'] else "—")
+                    if r['gex_note']: st.info(f"📊 GEX: {r['gex_note']}")
+                    act1, act2, act3 = st.columns(3)
+                    if r['status'] == 'Closed':
+                        if act1.button("↩️ Reopen", key=f"op_reopen{r['id']}", use_container_width=True):
+                            conn2 = get_conn()
+                            conn2.execute("UPDATE options_calls SET status='Open',exit_premium=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
+                            conn2.commit(); conn2.close(); st.success("Reopened!"); st.rerun()
+                    else:
+                        act1.markdown("")
+                    new_pnl2 = act2.number_input("Correct P&L %", value=float(r['pnl_pct'] or 0), step=0.1, key=f"op_pnl{r['id']}", format="%.2f")
+                    if act2.button("💾 Save P&L", key=f"op_savepnl{r['id']}", use_container_width=True):
+                        conn2 = get_conn()
+                        conn2.execute("UPDATE options_calls SET pnl_pct=? WHERE id=?", (new_pnl2, r['id']))
+                        conn2.commit(); conn2.close(); st.success("P&L updated!"); st.rerun()
+                    if act3.button("🗑️ Delete Permanently", key=f"op_permadel{r['id']}", use_container_width=True):
+                        conn2 = get_conn()
+                        conn2.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                        conn2.commit(); conn2.close(); st.rerun()
 
 
 def admin_updates():
