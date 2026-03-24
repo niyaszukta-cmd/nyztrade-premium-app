@@ -287,6 +287,64 @@ input, textarea, select {
 ::-webkit-scrollbar-track { background: #0a0715; }
 ::-webkit-scrollbar-thumb { background: #3d1f6b; border-radius: 3px; }
 
+/* ── SIDEBAR COLLAPSE BUTTON — fixed position, always visible ── */
+[data-testid="stSidebarCollapsedControl"] {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 24px !important;
+    left: 12px !important;
+    z-index: 99999 !important;
+    background: #1a0f2e !important;
+    border: 1px solid #3d1f6b !important;
+    border-radius: 50% !important;
+    width: 36px !important;
+    height: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    box-shadow: 0 2px 12px rgba(168,85,247,0.3) !important;
+}
+[data-testid="stSidebarCollapsedControl"]:hover {
+    background: #2d1f4e !important;
+    border-color: #a855f7 !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg {
+    fill: #a855f7 !important;
+    width: 16px !important;
+    height: 16px !important;
+}
+/* Also fix the expand button when sidebar is collapsed */
+[data-testid="collapsedControl"] {
+    position: fixed !important;
+    bottom: 24px !important;
+    left: 12px !important;
+    z-index: 99999 !important;
+    background: #1a0f2e !important;
+    border: 1px solid #3d1f6b !important;
+    border-radius: 50% !important;
+    width: 36px !important;
+    height: 36px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 2px 12px rgba(168,85,247,0.3) !important;
+}
+/* Move the inline collapse arrows out of the logo area */
+[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child > button {
+    position: fixed !important;
+    bottom: 24px !important;
+    left: 12px !important;
+    top: auto !important;
+    z-index: 99999 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+    padding-top: 0 !important;
+}
+
 /* ── LOADING OVERLAY ── */
 #nyz-loader {
     display: none;
