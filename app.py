@@ -50,6 +50,9 @@ PLAN_AMOUNTS = {
     "Combo Monthly":            1799,
     "Combo Quarterly":          4499,
     "Combo Annual":             14999,
+    "Adv Combo Monthly":        3499,
+    "Adv Combo Quarterly":      8999,
+    "Adv Combo Annual":         24999,
     "Adv Equity Monthly":       1999,
     "Adv Equity Quarterly":     4999,
     "Adv Equity Annual":        14999,
@@ -69,6 +72,9 @@ PLAN_ACCESS = {
     "Combo Monthly":            ["equity", "options"],
     "Combo Quarterly":          ["equity", "options"],
     "Combo Annual":             ["equity", "options"],
+    "Adv Combo Monthly":        ["equity", "options", "adv_equity", "adv_options"],
+    "Adv Combo Quarterly":      ["equity", "options", "adv_equity", "adv_options"],
+    "Adv Combo Annual":         ["equity", "options", "adv_equity", "adv_options"],
     "Adv Equity Monthly":       ["equity", "adv_equity"],
     "Adv Equity Quarterly":     ["equity", "adv_equity"],
     "Adv Equity Annual":        ["equity", "adv_equity"],
@@ -1212,7 +1218,7 @@ def select_portal():
     # Six portal cards — 2 rows of 3
     card_data = [
         ("⚙️","ADMIN","Command Centre","Dr. Niyas N · Restricted","#3b1f6b","#7c3aed","#a855f7",
-         ["Post equity & options calls","Manage premium members","Research & broker reports","Video library management","Performance analytics"],"admin"),
+         ["Post equity & options calls","Manage premium members","Research & broker reports","Video library management","Client subscriptions & expiry"],"admin"),
         ("📈","EQUITY","Equity Portal","Equity subscribers","#1a3a1a","#00ffb4","#00ffb4",
          ["Live equity trading calls","Equity research reports","Broker buy/sell calls","Market updates feed","Verified track record"],"equity"),
         ("⚡","OPTIONS","Options & GEX","Options subscribers","#1a1a3a","#7b61ff","#a855f7",
@@ -1223,6 +1229,8 @@ def select_portal():
          ["Everything in Options Portal","Live GEX heatmaps","Gamma Blast signals","Vanna & Charm analysis","Real-time gamma flip zones"],"adv_options"),
         ("📄","RESEARCH","Research Hub","All subscribers","#1a1030","#ffd700","#c084fc",
          ["Broker research reports","Buy/Sell/Hold calls","Sector & IPO analysis","Price target revisions","Institutional flow notes"],"research"),
+        ("💎","ADV · COMBO","Advanced Combo","All-access premium","#10081e","#c084fc","#c084fc",
+         ["Everything in Equity + Options","Advanced Equity setups","GEX & Gamma Blast signals","Vanna · Charm analysis","Full research hub access"],"adv_combo"),
     ]
 
     # Row 1 — first 3 cards
@@ -1253,8 +1261,8 @@ def select_portal():
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-    # Row 2 — next 3 cards (Advanced Equity, Advanced Options, Research)
-    row2 = st.columns(3)
+    # Row 2 — last 4 cards (Advanced Equity, Advanced Options, Research, Adv Combo)
+    row2 = st.columns(4)
     for col, card in zip(row2, card_data[3:]):
         icon, tag, title, sub, bg_c, accent, txt_c, feats, portal_key = card
         with col:
@@ -1294,12 +1302,13 @@ def select_portal():
 
 def portal_login(portal_type):
     icons   = {"equity": "📈", "options": "⚡", "research": "📄",
-               "adv_equity": "🚀", "adv_options": "🔥"}
+               "adv_equity": "🚀", "adv_options": "🔥", "adv_combo": "💎"}
     titles  = {"equity": "Equity Portal", "options": "Options & GEX Portal",
                "research": "Research Hub",
-               "adv_equity": "Advanced Equity", "adv_options": "Advanced Options · GEX & Gamma Blast"}
+               "adv_equity": "Advanced Equity", "adv_options": "Advanced Options · GEX & Gamma Blast",
+               "adv_combo": "Advanced Combo"}
     accents = {"equity": "#00ffb4", "options": "#7b61ff", "research": "#ffd700",
-               "adv_equity": "#00e5ff", "adv_options": "#ff6b35"}
+               "adv_equity": "#00e5ff", "adv_options": "#ff6b35", "adv_combo": "#c084fc"}
     icon   = icons.get(portal_type, "📈")
     title  = titles.get(portal_type, "Member Portal")
     accent = accents.get(portal_type, "#a855f7")
@@ -1342,7 +1351,7 @@ def portal_login(portal_type):
             member, err = verify_member(username, password)
             if member:
                 # Research hub is accessible to all active members
-                if portal_type == "research" or member_has_access(dict(member), portal_type) or (portal_type in ("adv_equity","adv_options") and member_has_access(dict(member), portal_type)):
+                if portal_type == "research" or member_has_access(dict(member), portal_type) or (portal_type in ("adv_equity","adv_options","adv_combo") and member_has_access(dict(member), portal_type)):
                     st.session_state.member = dict(member)
                     st.session_state.active_portal = portal_type
                     _save_session()
@@ -2316,7 +2325,7 @@ def admin_clients():
                 email=st.text_input("Email"); phone=st.text_input("Phone")
                 plan=st.selectbox("Plan",list(PLAN_AMOUNTS.keys())); status=st.selectbox("Status",["Active","Trial","Inactive"])
                 joined=st.date_input("Joined",value=date.today())
-                days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Adv Equity Monthly":30,"Adv Equity Quarterly":90,"Adv Equity Annual":365,"Adv Options Monthly":30,"Adv Options Quarterly":90,"Adv Options Annual":365,"Trial":7}
+                days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Adv Combo Monthly":30,"Adv Combo Quarterly":90,"Adv Combo Annual":365,"Adv Equity Monthly":30,"Adv Equity Quarterly":90,"Adv Equity Annual":365,"Adv Options Monthly":30,"Adv Options Quarterly":90,"Adv Options Annual":365,"Trial":7}
                 expiry=st.date_input("Expiry",value=joined+timedelta(days=days_map.get(plan,30)))
             notes=st.text_area("Notes"); send_tg=st.checkbox("📲 Send Telegram welcome",value=True)
             if st.form_submit_button("Add Member →",use_container_width=True):
@@ -2674,13 +2683,6 @@ def equity_home(member):
     for col,val,label,color in [(c1,open_eq,"Equity Open","#00ffb4"),(c2,eq_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
     st.divider()
-    st.markdown("#### 📢 Today's Updates")
-    updates = _fetchall(_exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)))
-    if updates:
-        for u in updates:
-            st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
-    else: st.info("No updates today yet.")
-    st.divider()
     st.markdown("#### 📊 Active Equity Calls")
     for r in _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5")):
         rr = round((r['target1']-r['entry_price'])/(r['entry_price']-r['stop_loss']),2) if r['entry_price'] and r['stop_loss'] and r['stop_loss']!=r['entry_price'] else None
@@ -2738,13 +2740,6 @@ def options_home(member):
     reps    = (lambda r: list(r.values())[0] if r else 0)(_fetchone(_exec(conn, "SELECT COUNT(*) FROM research_reports")))
     for col,val,label,color in [(c1,open_op,"Options Open","#7b61ff"),(c2,op_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
-    st.divider()
-    st.markdown("#### 📢 Today's Updates")
-    updates = _fetchall(_exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)))
-    if updates:
-        for u in updates:
-            st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
-    else: st.info("No updates today yet.")
     st.divider()
     st.markdown("#### ⚡ Active Options Calls")
     for r in _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5")):
@@ -2978,8 +2973,8 @@ def main():
             st.divider()
             page = st.radio("", [
                 "🏠 Dashboard","📊 Equity Calls","⚡ Options & GEX",
-                "📄 Research & Broker","📢 Daily Updates","🎬 Video Library",
-                "👥 Client Management","📈 Performance",
+                "📄 Research & Broker","🎬 Video Library",
+                "👥 Client Management",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -2995,10 +2990,8 @@ def main():
             "📊 Equity Calls":        admin_equity,
             "⚡ Options & GEX":       admin_options,
             "📄 Research & Broker":   admin_research,
-            "📢 Daily Updates":       admin_updates,
             "🎬 Video Library":       admin_videos,
             "👥 Client Management":   admin_clients,
-            "📈 Performance":         admin_performance,
         }
         pages[page]()
         return
@@ -3019,7 +3012,7 @@ def main():
             sidebar_member_info(member, "#00ffb4")
             page = st.radio("", [
                 "🏠 Home","📊 Active Calls","📈 Track Record",
-                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+                "📄 Research Hub","🎬 Video Library","👤 My Profile",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -3033,7 +3026,6 @@ def main():
             "📊 Active Calls":  equity_home,
             "📈 Track Record":  equity_track_record,
             "📄 Research Hub":  member_research,
-            "📢 Updates Feed":  member_updates,
             "🎬 Video Library": member_videos,
             "👤 My Profile":    lambda m: member_profile(m, "equity"),
         }
@@ -3079,7 +3071,7 @@ def main():
             sidebar_member_info(member, "#7b61ff")
             page = st.radio("", [
                 "🏠 Home","⚡ Active Calls","📊 GEX Analysis","📈 Track Record",
-                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+                "📄 Research Hub","🎬 Video Library","👤 My Profile",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -3093,7 +3085,6 @@ def main():
             "📊 GEX Analysis":  options_gex_analysis,
             "📈 Track Record":  options_track_record,
             "📄 Research Hub":  member_research,
-            "📢 Updates Feed":  member_updates,
             "🎬 Video Library": member_videos,
             "👤 My Profile":    lambda m: member_profile(m, "options"),
         }
@@ -3138,7 +3129,7 @@ def main():
             sidebar_member_info(member, "#00e5ff")
             page = st.radio("", [
                 "🏠 Home","📊 Active Calls","🚀 Advanced Calls","📈 Track Record",
-                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+                "📄 Research Hub","🎬 Video Library","👤 My Profile",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -3153,7 +3144,6 @@ def main():
             "🚀 Advanced Calls": lambda m: adv_equity_home(m),
             "📈 Track Record":   equity_track_record,
             "📄 Research Hub":   member_research,
-            "📢 Updates Feed":   member_updates,
             "🎬 Video Library":  member_videos,
             "👤 My Profile":     lambda m: member_profile(m, "adv_equity"),
         }
@@ -3200,7 +3190,7 @@ def main():
             sidebar_member_info(member, "#ff6b35")
             page = st.radio("", [
                 "🏠 Home","⚡ Active Calls","🔥 GEX & Gamma Blast","📊 GEX Analysis","📈 Track Record",
-                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+                "📄 Research Hub","🎬 Video Library","👤 My Profile",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -3216,7 +3206,6 @@ def main():
             "📊 GEX Analysis":      options_gex_analysis,
             "📈 Track Record":      options_track_record,
             "📄 Research Hub":      member_research,
-            "📢 Updates Feed":      member_updates,
             "🎬 Video Library":     member_videos,
             "👤 My Profile":        lambda m: member_profile(m, "adv_options"),
         }
@@ -3244,6 +3233,48 @@ def main():
             advop_pages[page](member)
         return
 
+    # ── ADVANCED COMBO PORTAL ────────────────────────────────────────
+    if portal == "adv_combo":
+        member = st.session_state.get("member")
+        if not member or st.session_state.get("active_portal") != "adv_combo":
+            st.session_state.pop("member", None)
+            portal_login("adv_combo"); return
+
+        with st.sidebar:
+            st.markdown(f'''<div style="text-align:center;padding:14px 8px 4px;">
+              <img src="{NYZTRADE_LOGO_SRC}" style="width:110px;height:auto;border-radius:8px;margin-bottom:4px;border:1px solid #c084fc33;" alt="NYZTrade">
+              <div style="font-size:9px;color:#4b3a6b;letter-spacing:3px;text-transform:uppercase;margin-top:2px;">Advanced Combo</div>
+              <div style="display:inline-block;background:#c084fc18;color:#c084fc;border:1px solid #c084fc44;border-radius:12px;padding:1px 8px;font-size:8px;font-weight:800;letter-spacing:2px;margin-top:3px;">ALL ACCESS</div>
+            </div>''', unsafe_allow_html=True)
+            st.divider()
+            sidebar_member_info(member, "#c084fc")
+            page = st.radio("", [
+                "🏠 Home","📊 Equity Calls","🚀 Adv Equity","⚡ Options Calls",
+                "🔥 GEX & Gamma Blast","📊 GEX Analysis","📈 Track Record",
+                "📄 Research Hub","🎬 Video Library","👤 My Profile",
+            ], label_visibility="collapsed")
+            st.divider()
+            if st.button("🚪 Logout", use_container_width=True):
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
+
+        _save_session()
+        advc_pages = {
+            "🏠 Home":           equity_home,
+            "📊 Equity Calls":   equity_home,
+            "🚀 Adv Equity":     lambda m: adv_equity_home(m),
+            "⚡ Options Calls":  options_home,
+            "🔥 GEX & Gamma Blast": lambda m: adv_options_gex_home(m),
+            "📊 GEX Analysis":   options_gex_analysis,
+            "📈 Track Record":   equity_track_record,
+            "📄 Research Hub":   member_research,
+            "🎬 Video Library":  member_videos,
+            "👤 My Profile":     lambda m: member_profile(m, "adv_combo"),
+        }
+        advc_pages[page](member)
+        return
+
     # ── RESEARCH PORTAL ───────────────────────────────────────────────
     if portal == "research":
         member = st.session_state.get("member")
@@ -3259,7 +3290,7 @@ def main():
             st.divider()
             sidebar_member_info(member, "#ffd700")
             page = st.radio("", [
-                "📄 Research Reports","🏦 Broker Calls","📢 Updates Feed","👤 My Profile",
+                "📄 Research Reports","🏦 Broker Calls","👤 My Profile",
             ], label_visibility="collapsed")
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
@@ -3271,7 +3302,6 @@ def main():
         res_pages = {
             "📄 Research Reports": member_research,
             "🏦 Broker Calls":     member_research,
-            "📢 Updates Feed":     member_updates,
             "👤 My Profile":       lambda m: member_profile(m, "research"),
         }
         res_pages[page](member)
