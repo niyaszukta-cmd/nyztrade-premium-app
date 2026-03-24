@@ -310,6 +310,23 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
 
+# ── Query result cache (30s TTL) — reduces Supabase round trips ───────
+# Call invalidate_cache() after any INSERT/UPDATE/DELETE to refresh data.
+_QUERY_CACHE = {}
+import time as _time
+
+def _cache_get(key):
+    entry = _QUERY_CACHE.get(key)
+    if entry and (_time.time() - entry['ts'] < 30):
+        return entry['data'], True
+    return None, False
+
+def _cache_set(key, data):
+    _QUERY_CACHE[key] = {'ts': _time.time(), 'data': data}
+
+def invalidate_cache():
+    _QUERY_CACHE.clear()
+
 def _get_db_url() -> str:
     """Read DATABASE_URL from Streamlit Secrets (TOML) or environment."""
     # Try each key name variant — Streamlit Secrets (TOML)
@@ -343,10 +360,20 @@ def get_conn():
     Return an open DB connection.
     PostgreSQL (psycopg2) if DATABASE_URL is set and psycopg2 is installed,
     otherwise SQLite.  Both return dict-like rows via row_factory / RealDictCursor.
+    Uses connect_timeout and keepalives to reduce latency on Supabase free tier.
     """
     if _USE_PG:
         import psycopg2, psycopg2.extras
-        conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg2.connect(
+            _DB_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=15,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=5,
+            keepalives_count=3,
+            options="-c statement_timeout=10000"  # 10s max per query
+        )
         conn.autocommit = False
         return conn
     else:
@@ -661,7 +688,10 @@ def _auto_expire_members():
         except Exception:
             pass
 
-_auto_expire_members()  # runs silently on every Streamlit rerun
+# Auto-expire runs at most once per 60s per session to reduce DB round trips
+if "last_expire_check" not in st.session_state or    (date.today().toordinal() - st.session_state.get("last_expire_check", 0)) >= 1:
+    _auto_expire_members()
+    st.session_state["last_expire_check"] = date.today().toordinal()
 
 # Show DB status in sidebar after load (admin only — shown in admin dashboard)
 _DB_STATUS = "🟢 Supabase PostgreSQL (persistent)" if _USE_PG else "🟡 SQLite local (ephemeral — add DATABASE_URL to Secrets)"
@@ -1960,18 +1990,28 @@ def admin_dashboard():
     st.markdown('<div class="section-header">🏠 Command Centre</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Live overview — all activity at a glance</div>', unsafe_allow_html=True)
     conn = get_conn()
-    cols = st.columns(6)
-    def _count(conn, sql):
-        row = _fetchone(_exec(conn, sql))
-        return list(row.values())[0] if row else 0
+    cols = st.columns(7)
+    # Single query for all metrics — 1 round trip instead of 7
+    today_s  = str(date.today())
+    exp7_s   = str(date.today() + timedelta(days=7))
+    m = _fetchone(_exec(conn, """
+        SELECT
+            (SELECT COUNT(*) FROM clients WHERE status='Active')                                         AS active_members,
+            (SELECT COUNT(*) FROM equity_calls WHERE status='Open')                                      AS equity_open,
+            (SELECT COUNT(*) FROM options_calls WHERE status='Open')                                     AS options_open,
+            (SELECT COUNT(*) FROM research_reports)                                                      AS reports,
+            (SELECT COUNT(*) FROM broker_calls WHERE status='Active')                                    AS broker_calls,
+            (SELECT COUNT(*) FROM clients WHERE status='Active' AND expiry_date>=? AND expiry_date<=?)   AS expiring_7d,
+            (SELECT COUNT(*) FROM clients WHERE status='Inactive')                                       AS inactive
+    """, (today_s, exp7_s))) or {}
     metrics = [
-        (_count(conn, "SELECT COUNT(*) FROM clients WHERE status='Active'"), "Active Members","#00ddff"),
-        (_count(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'"),  "Equity Open",  "#00ffb4"),
-        (_count(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'"), "Options Open", "#7b61ff"),
-        (_count(conn, "SELECT COUNT(*) FROM research_reports"),                  "Reports",      "#ffd700"),
-        (_count(conn, "SELECT COUNT(*) FROM broker_calls WHERE status='Active'"),"Broker Calls", "#c084fc"),
-        (_count(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<='" + str(date.today() + timedelta(days=7)) + "' AND expiry_date>='" + str(date.today()) + "' AND status='Active'"), "Expiring 7d","#ffd700"),
-        (_count(conn, "SELECT COUNT(*) FROM clients WHERE status='Inactive'"), "Inactive","#ff6b6b"),
+        (m.get("active_members",0), "Active Members","#00ddff"),
+        (m.get("equity_open",0),    "Equity Open",   "#00ffb4"),
+        (m.get("options_open",0),   "Options Open",  "#7b61ff"),
+        (m.get("reports",0),        "Reports",       "#ffd700"),
+        (m.get("broker_calls",0),   "Broker Calls",  "#c084fc"),
+        (m.get("expiring_7d",0),    "Expiring 7d",   "#ffd700"),
+        (m.get("inactive",0),       "Inactive",      "#ff6b6b"),
     ]
     for col, (val, label, color) in zip(cols, metrics):
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
