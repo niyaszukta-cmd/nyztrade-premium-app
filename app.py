@@ -41,29 +41,41 @@ TG_CHANNEL_ID = "@nyztrade_premium"
 TG_ADMIN_ID   = "YOUR_TELEGRAM_CHAT_ID"
 
 PLAN_AMOUNTS = {
-    "Equity Monthly":    999,
-    "Equity Quarterly":  2499,
-    "Equity Annual":     7999,
-    "Options Monthly":   1299,
-    "Options Quarterly": 3299,
-    "Options Annual":    9999,
-    "Combo Monthly":     1799,
-    "Combo Quarterly":   4499,
-    "Combo Annual":      14999,
-    "Trial":             0,
+    "Equity Monthly":           999,
+    "Equity Quarterly":         2499,
+    "Equity Annual":            7999,
+    "Options Monthly":          1299,
+    "Options Quarterly":        3299,
+    "Options Annual":           9999,
+    "Combo Monthly":            1799,
+    "Combo Quarterly":          4499,
+    "Combo Annual":             14999,
+    "Adv Equity Monthly":       1999,
+    "Adv Equity Quarterly":     4999,
+    "Adv Equity Annual":        14999,
+    "Adv Options Monthly":      2499,
+    "Adv Options Quarterly":    5999,
+    "Adv Options Annual":       17999,
+    "Trial":                    0,
 }
 
 PLAN_ACCESS = {
-    "Equity Monthly":    ["equity"],
-    "Equity Quarterly":  ["equity"],
-    "Equity Annual":     ["equity"],
-    "Options Monthly":   ["options"],
-    "Options Quarterly": ["options"],
-    "Options Annual":    ["options"],
-    "Combo Monthly":     ["equity", "options"],
-    "Combo Quarterly":   ["equity", "options"],
-    "Combo Annual":      ["equity", "options"],
-    "Trial":             ["equity", "options"],
+    "Equity Monthly":           ["equity"],
+    "Equity Quarterly":         ["equity"],
+    "Equity Annual":            ["equity"],
+    "Options Monthly":          ["options"],
+    "Options Quarterly":        ["options"],
+    "Options Annual":           ["options"],
+    "Combo Monthly":            ["equity", "options"],
+    "Combo Quarterly":          ["equity", "options"],
+    "Combo Annual":             ["equity", "options"],
+    "Adv Equity Monthly":       ["equity", "adv_equity"],
+    "Adv Equity Quarterly":     ["equity", "adv_equity"],
+    "Adv Equity Annual":        ["equity", "adv_equity"],
+    "Adv Options Monthly":      ["options", "adv_options"],
+    "Adv Options Quarterly":    ["options", "adv_options"],
+    "Adv Options Annual":       ["options", "adv_options"],
+    "Trial":                    ["equity", "options", "adv_equity", "adv_options"],
 }
 
 BROKER_HOUSES = [
@@ -1022,35 +1034,72 @@ def select_portal():
     </div>
     ''', unsafe_allow_html=True)
 
-    # Four portal cards
+    # Six portal cards — 2 rows of 3
     card_data = [
         ("⚙️","ADMIN","Command Centre","Dr. Niyas N · Restricted","#3b1f6b","#7c3aed","#a855f7",
-         ["Post equity & options calls","Manage premium members","Research reports & broker calls","Video library management","Performance analytics"],"admin"),
+         ["Post equity & options calls","Manage premium members","Research & broker reports","Video library management","Performance analytics"],"admin"),
         ("📈","EQUITY","Equity Portal","Equity subscribers","#1a3a1a","#00ffb4","#00ffb4",
          ["Live equity trading calls","Equity research reports","Broker buy/sell calls","Market updates feed","Verified track record"],"equity"),
         ("⚡","OPTIONS","Options & GEX","Options subscribers","#1a1a3a","#7b61ff","#a855f7",
          ["Live options calls","Weekly GEX analysis maps","Options strategy videos","Broker options calls","GEX track record"],"options"),
+        ("🚀","ADV · EQUITY","Advanced Equity","Premium equity subscribers","#0a1a2e","#00e5ff","#00e5ff",
+         ["Everything in Equity Portal","Advanced stock screening","Swing & positional setups","Deep-dive fundamental calls","Priority buy/sell alerts"],"adv_equity"),
+        ("🔥","ADV · OPTIONS","Advanced Options","Premium options subscribers","#1a0a0a","#ff6b35","#ff9055",
+         ["Everything in Options Portal","Live GEX heatmaps","Gamma Blast signals","Vanna & Charm analysis","Real-time gamma flip zones"],"adv_options"),
         ("📄","RESEARCH","Research Hub","All subscribers","#1a1030","#ffd700","#c084fc",
-         ["Broker research reports","Buy/Sell/Hold calls","Sector analysis","IPO notes & result updates","Price target revisions"],"research"),
+         ["Broker research reports","Buy/Sell/Hold calls","Sector & IPO analysis","Price target revisions","Institutional flow notes"],"research"),
     ]
 
-    cols = st.columns(4)
-    for col, (icon, tag, title, sub, bg_c, accent, txt_c, feats, portal_key) in zip(cols, card_data):
+    # Row 1 — first 3 cards
+    row1 = st.columns(3)
+    for col, card in zip(row1, card_data[:3]):
+        icon, tag, title, sub, bg_c, accent, txt_c, feats, portal_key = card
         with col:
             feats_html = "".join(f'<div style="font-size:11px;color:#9d8ab5;padding:3px 0;font-family:Space Grotesk,sans-serif;"><span style="color:{accent}">▸</span> {f}</div>' for f in feats)
             st.markdown(f"""
             <div style="background:linear-gradient(145deg,#140d24,#0d0818);border:1px solid {accent}44;
-                 border-radius:22px;padding:26px 22px;position:relative;overflow:hidden;
-                 box-shadow:0 4px 40px {accent}12;min-height:360px;">
+                 border-radius:22px;padding:24px 20px;position:relative;overflow:hidden;
+                 box-shadow:0 4px 40px {accent}12;min-height:340px;">
               <div style="position:absolute;top:0;left:0;right:0;height:3px;
                    background:linear-gradient(90deg,transparent,{accent},transparent);"></div>
               <div style="display:inline-block;background:{accent}18;border:1px solid {accent}33;
                    border-radius:20px;padding:3px 12px;font-size:9px;font-weight:700;color:{txt_c};
-                   letter-spacing:3px;text-transform:uppercase;margin-bottom:14px;font-family:Space Grotesk,sans-serif;">{tag}</div>
-              <div style="font-size:32px;margin-bottom:12px;">{icon}</div>
-              <div style="font-family:Outfit,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:4px;">{title}</div>
-              <div style="font-size:11px;color:#6b5a8a;margin-bottom:16px;letter-spacing:0.5px;">{sub}</div>
-              <div style="height:1px;background:linear-gradient(90deg,{accent}44,transparent);margin-bottom:14px;"></div>
+                   letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;font-family:Space Grotesk,sans-serif;">{tag}</div>
+              <div style="font-size:28px;margin-bottom:10px;">{icon}</div>
+              <div style="font-family:Outfit,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px;">{title}</div>
+              <div style="font-size:11px;color:#6b5a8a;margin-bottom:14px;letter-spacing:0.5px;">{sub}</div>
+              <div style="height:1px;background:linear-gradient(90deg,{accent}44,transparent);margin-bottom:12px;"></div>
+              {feats_html}
+            </div>""", unsafe_allow_html=True)
+            if st.button(f"Enter {title} →", key=f"btn_{portal_key}", use_container_width=True):
+                st.session_state.portal = portal_key
+                _save_session()
+                st.rerun()
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # Row 2 — next 3 cards (Advanced Equity, Advanced Options, Research)
+    row2 = st.columns(3)
+    for col, card in zip(row2, card_data[3:]):
+        icon, tag, title, sub, bg_c, accent, txt_c, feats, portal_key = card
+        with col:
+            feats_html = "".join(f'<div style="font-size:11px;color:#9d8ab5;padding:3px 0;font-family:Space Grotesk,sans-serif;"><span style="color:{accent}">▸</span> {f}</div>' for f in feats)
+            # Premium badge for advanced portals
+            premium_badge = f'<div style="position:absolute;top:14px;right:14px;background:linear-gradient(135deg,{accent},{accent}88);color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;letter-spacing:1.5px;text-transform:uppercase;">PREMIUM</div>' if portal_key in ("adv_equity","adv_options") else ""
+            st.markdown(f"""
+            <div style="background:linear-gradient(145deg,#140d24,#0d0818);border:1px solid {accent}44;
+                 border-radius:22px;padding:24px 20px;position:relative;overflow:hidden;
+                 box-shadow:0 4px 40px {accent}18;min-height:340px;">
+              <div style="position:absolute;top:0;left:0;right:0;height:3px;
+                   background:linear-gradient(90deg,transparent,{accent},{accent}88,transparent);"></div>
+              {premium_badge}
+              <div style="display:inline-block;background:{accent}18;border:1px solid {accent}33;
+                   border-radius:20px;padding:3px 12px;font-size:9px;font-weight:700;color:{txt_c};
+                   letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;font-family:Space Grotesk,sans-serif;">{tag}</div>
+              <div style="font-size:28px;margin-bottom:10px;">{icon}</div>
+              <div style="font-family:Outfit,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px;">{title}</div>
+              <div style="font-size:11px;color:#6b5a8a;margin-bottom:14px;letter-spacing:0.5px;">{sub}</div>
+              <div style="height:1px;background:linear-gradient(90deg,{accent}44,transparent);margin-bottom:12px;"></div>
               {feats_html}
             </div>""", unsafe_allow_html=True)
             if st.button(f"Enter {title} →", key=f"btn_{portal_key}", use_container_width=True):
@@ -1069,9 +1118,13 @@ def select_portal():
 # ══════════════════════════════════════════════════════════════════════
 
 def portal_login(portal_type):
-    icons = {"equity": "📈", "options": "⚡", "research": "📄"}
-    titles = {"equity": "Equity Portal", "options": "Options & GEX Portal", "research": "Research Hub"}
-    accents = {"equity": "#00ffb4", "options": "#7b61ff", "research": "#ffd700"}
+    icons   = {"equity": "📈", "options": "⚡", "research": "📄",
+               "adv_equity": "🚀", "adv_options": "🔥"}
+    titles  = {"equity": "Equity Portal", "options": "Options & GEX Portal",
+               "research": "Research Hub",
+               "adv_equity": "Advanced Equity", "adv_options": "Advanced Options · GEX & Gamma Blast"}
+    accents = {"equity": "#00ffb4", "options": "#7b61ff", "research": "#ffd700",
+               "adv_equity": "#00e5ff", "adv_options": "#ff6b35"}
     icon   = icons.get(portal_type, "📈")
     title  = titles.get(portal_type, "Member Portal")
     accent = accents.get(portal_type, "#a855f7")
@@ -1114,7 +1167,7 @@ def portal_login(portal_type):
             member = verify_member(username, password)
             if member:
                 # Research hub is accessible to all active members
-                if portal_type == "research" or member_has_access(dict(member), portal_type):
+                if portal_type == "research" or member_has_access(dict(member), portal_type) or (portal_type in ("adv_equity","adv_options") and member_has_access(dict(member), portal_type)):
                     st.session_state.member = dict(member)
                     st.session_state.active_portal = portal_type
                     _save_session()
@@ -1476,7 +1529,7 @@ def admin_research():
                     color = "#00ffb4" if upside_pct >= 0 else "#ff6b6b"
                     st.markdown(f'<div style="margin-top:28px;background:#0a0715;border:1px solid #2d1f4e;border-radius:10px;padding:16px;text-align:center"><div style="font-size:11px;color:#445566;text-transform:uppercase">Upside / Downside</div><div style="font-size:28px;font-weight:800;color:{color};margin-top:6px">{upside_pct:+.1f}%</div></div>', unsafe_allow_html=True)
                 tags       = st.text_input("Tags", value=ai_tags, placeholder="largecap, Q3, results...")
-                visible_to = st.selectbox("Visible To", ["all","equity","options"])
+                visible_to = st.selectbox("Visible To", ["all","equity","options","adv_equity","adv_options","research"])
 
             notes = st.text_area("Executive Summary (AI-generated, editable)", height=100,
                 value=ai_notes, placeholder="Brief context shown above the PDF viewer...")
@@ -2082,7 +2135,7 @@ def admin_clients():
                 email=st.text_input("Email"); phone=st.text_input("Phone")
                 plan=st.selectbox("Plan",list(PLAN_AMOUNTS.keys())); status=st.selectbox("Status",["Active","Trial","Inactive"])
                 joined=st.date_input("Joined",value=date.today())
-                days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Trial":7}
+                days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Adv Equity Monthly":30,"Adv Equity Quarterly":90,"Adv Equity Annual":365,"Adv Options Monthly":30,"Adv Options Quarterly":90,"Adv Options Annual":365,"Trial":7}
                 expiry=st.date_input("Expiry",value=joined+timedelta(days=days_map.get(plan,30)))
             notes=st.text_area("Notes"); send_tg=st.checkbox("📲 Send Telegram welcome",value=True)
             if st.form_submit_button("Add Member →",use_container_width=True):
@@ -2110,7 +2163,7 @@ def admin_clients():
             exp=date.fromisoformat(r['expiry_date']) if r['expiry_date'] else None; dl=(exp-date.today()).days if exp else None
             sc={"Active":"#00ffb4","Inactive":"#ff6b6b","Trial":"#ffd700"}.get(r['status'],"#aaa")
             warn=f" ⚠️{dl}d" if dl and dl<=7 else (f" {dl}d" if dl else "")
-            access=PLAN_ACCESS.get(r['plan'],[]); access_badges=" ".join([f'<span style="background:{"#00ffb422" if a=="equity" else "#7b61ff22"};color:{"#00ffb4" if a=="equity" else "#9b7af7"};border:1px solid {"#00ffb444" if a=="equity" else "#7b61ff44"};border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700">{a.upper()}</span>' for a in access])
+            access=PLAN_ACCESS.get(r['plan'],[]); access_badges=" ".join([f'<span style="background:{{"#00ffb422" if a=="equity" else "#00e5ff22" if a=="adv_equity" else "#ff6b3522" if a=="adv_options" else "#7b61ff22"}};color:{{"#00ffb4" if a=="equity" else "#00e5ff" if a=="adv_equity" else "#ff6b35" if a=="adv_options" else "#9b7af7"}};border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700">{a.upper()}</span>' for a in access])
             with st.expander(f"{'🟢' if r['status']=='Active' else '🔴'} {r['name']} (@{r['username']}) | {r['plan']}{warn}"):
                 st.markdown(f'**Status:** <span style="color:{sc}">{r["status"]}</span> &nbsp; **Expires:** {r["expiry_date"] or "—"} &nbsp; **Days:** {f"{dl}d" if dl else "—"} &nbsp; **Access:** {access_badges}',unsafe_allow_html=True)
                 if r['notes']: st.caption(f"📝 {r['notes']}")
@@ -2328,6 +2381,104 @@ def member_research(member):
 # ══════════════════════════════════════════════════════════════════════
 # EQUITY MEMBER PAGES
 # ══════════════════════════════════════════════════════════════════════
+
+def adv_equity_home(member):
+    """Advanced Equity — premium calls with detailed setup notes."""
+    st.markdown('<div class="section-header">🚀 Advanced Equity Calls</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Premium equity setups — swing, positional & momentum with deep analysis</div>', unsafe_allow_html=True)
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+    conn.close()
+    if not rows:
+        st.markdown('''<div style="background:#0a0715;border:1px solid #00e5ff22;border-radius:14px;padding:32px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:10px;">🚀</div>
+          <div style="color:#00e5ff;font-weight:700;font-size:16px;margin-bottom:6px;">No advanced calls right now</div>
+          <div style="color:#445566;font-size:13px;">Premium equity setups are posted here as they trigger.</div>
+        </div>''', unsafe_allow_html=True)
+        return
+    for r in rows:
+        rr = round((r['target1']-r['entry_price'])/(r['entry_price']-r['stop_loss']),2) if r['entry_price'] and r['stop_loss'] and r['stop_loss']!=r['entry_price'] else None
+        st.markdown(f"""<div class="call-card {r['call_type'].lower()}" style="border-left-color:#00e5ff">
+          <div style="position:absolute;top:10px;right:14px;background:#00e5ff18;color:#00e5ff;border:1px solid #00e5ff44;border-radius:12px;padding:1px 8px;font-size:9px;font-weight:800;letter-spacing:1.5px;">PREMIUM</div>
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
+            <div><span style="font-size:18px;font-weight:800;color:#fff">{r['symbol']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-open">OPEN</span></div>
+            <div style="font-size:12px;color:#445566">{r['posted_date'] or ''}</div>
+          </div>
+          <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+            <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:20px;font-weight:700;color:#fff">₹{r['entry_price']}</div></div>
+            <div><div style="font-size:10px;color:#445566;text-transform:uppercase">T1</div><div style="font-size:20px;font-weight:700;color:#00e5ff">₹{r['target1']}</div></div>
+            {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>T2</div><div style='font-size:20px;font-weight:700;color:#00e5ff'>₹"+str(r['target2'])+"</div></div>" if r['target2'] else ""}
+            <div><div style="font-size:10px;color:#445566;text-transform:uppercase">SL</div><div style="font-size:20px;font-weight:700;color:#ff6b6b">₹{r['stop_loss']}</div></div>
+            {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>R:R</div><div style='font-size:20px;font-weight:700;color:#ffd700'>1:"+str(rr)+"</div></div>" if rr else ""}
+          </div>
+          {"<div style='margin-top:12px;background:#041428;border-radius:8px;padding:12px;font-size:13px;color:#c0d0e0;line-height:1.7'><b style='color:#00e5ff'>📋 Advanced Analysis:</b><br>"+r['rationale']+"</div>" if r['rationale'] else ""}
+        </div>""", unsafe_allow_html=True)
+
+
+def adv_options_gex_home(member):
+    """Advanced Options — GEX, Gamma Blast, Vanna & Charm dashboard."""
+    st.markdown('<div class="section-header">🔥 GEX & Gamma Blast</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Live GEX heatmaps · Gamma flip zones · Vanna & Charm · Gamma Blast signals</div>', unsafe_allow_html=True)
+
+    # GEX metric strip
+    m1, m2, m3, m4 = st.columns(4)
+    for col, label, value, color in [
+        (m1, "Gamma Flip Zone", "Dynamic", "#ff6b35"),
+        (m2, "Call Wall", "Live GEX", "#00e5ff"),
+        (m3, "Put Wall", "Live GEX", "#ff6b6b"),
+        (m4, "Net GEX", "Dealer Flow", "#ffd700"),
+    ]:
+        col.markdown(f'''<div class="metric-card">
+          <div style="font-size:10px;color:#445566;text-transform:uppercase;letter-spacing:1.5px;">{label}</div>
+          <div style="font-size:18px;font-weight:800;color:{color};margin-top:6px;">{value}</div>
+        </div>''', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # Info panels
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('''<div style="background:#0c0a18;border:1px solid #ff6b3533;border-radius:14px;padding:20px;">
+          <div style="font-size:13px;font-weight:700;color:#ff6b35;margin-bottom:12px;">🔥 Gamma Blast Signals</div>
+          <div style="font-size:12px;color:#9d8ab5;line-height:1.8;">
+            Gamma Blast triggers fire when net GEX crosses key dealer hedging thresholds.<br><br>
+            These signals indicate explosive directional moves driven by dealer delta-hedging cascades.<br><br>
+            <span style="color:#ffd700;font-weight:600;">Current signals will appear here when admin posts GEX updates.</span>
+          </div>
+        </div>''', unsafe_allow_html=True)
+    with c2:
+        st.markdown('''<div style="background:#0c0a18;border:1px solid #00e5ff33;border-radius:14px;padding:20px;">
+          <div style="font-size:13px;font-weight:700;color:#00e5ff;margin-bottom:12px;">📊 Vanna & Charm Analysis</div>
+          <div style="font-size:12px;color:#9d8ab5;line-height:1.8;">
+            <b style="color:#c084fc;">Vanna</b> — sensitivity of delta to changes in implied volatility (vol-driven dealer flows).<br><br>
+            <b style="color:#c084fc;">Charm</b> — rate of change of delta with time (time-decay driven hedging flows).<br><br>
+            <span style="color:#ffd700;font-weight:600;">Live analysis is posted in the GEX Weekly tab by admin.</span>
+          </div>
+        </div>''', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown('<div style="font-size:13px;color:#445566;font-weight:600;margin-bottom:10px;">📋 Latest GEX Updates</div>', unsafe_allow_html=True)
+    conn = get_conn()
+    try:
+        gex_rows = conn.execute(
+            "SELECT * FROM daily_updates WHERE category='GEX Update' ORDER BY created_at DESC LIMIT 5"
+        ).fetchall()
+    except Exception:
+        gex_rows = []
+    conn.close()
+    if not gex_rows:
+        st.info("No GEX updates posted yet. Check back after market hours.")
+    else:
+        for g in gex_rows:
+            st.markdown(f'''<div class="update-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="background:#ff6b3518;color:#ff6b35;border:1px solid #ff6b3533;border-radius:12px;padding:2px 10px;font-size:10px;font-weight:700;">📊 GEX UPDATE</span>
+                <span style="font-size:11px;color:#445566">{g["posted_date"] or ""}</span>
+              </div>
+              <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;">{g["title"]}</div>
+              <div style="font-size:13px;color:#9d8ab5;line-height:1.7;">{(g["content"] or "")[:400]}{"..." if len(g["content"] or "") > 400 else ""}</div>
+            </div>''', unsafe_allow_html=True)
+
 
 def equity_home(member):
     st.markdown(f'<div class="section-header">Welcome, {member["name"].split()[0]} 👋</div>', unsafe_allow_html=True)
@@ -2760,6 +2911,129 @@ def main():
                 </div>""", unsafe_allow_html=True)
         else:
             op_pages[page](member)
+        return
+
+    # ── ADVANCED EQUITY PORTAL ───────────────────────────────────────
+    if portal == "adv_equity":
+        member = st.session_state.get("member")
+        if not member or st.session_state.get("active_portal") != "adv_equity":
+            st.session_state.pop("member", None)
+            portal_login("adv_equity"); return
+
+        with st.sidebar:
+            st.markdown(f'''<div style="text-align:center;padding:14px 8px 4px;">
+              <img src="{NYZTRADE_LOGO_SRC}" style="width:110px;height:auto;border-radius:8px;margin-bottom:4px;border:1px solid #00e5ff33;" alt="NYZTrade">
+              <div style="font-size:9px;color:#4b3a6b;letter-spacing:3px;text-transform:uppercase;margin-top:2px;">Advanced Equity</div>
+              <div style="display:inline-block;background:#00e5ff18;color:#00e5ff;border:1px solid #00e5ff44;border-radius:12px;padding:1px 8px;font-size:8px;font-weight:800;letter-spacing:2px;margin-top:3px;">PREMIUM</div>
+            </div>''', unsafe_allow_html=True)
+            st.divider()
+            sidebar_member_info(member, "#00e5ff")
+            page = st.radio("", [
+                "🏠 Home","📊 Active Calls","🚀 Advanced Calls","📈 Track Record",
+                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+            ], label_visibility="collapsed")
+            st.divider()
+            if st.button("🚪 Logout", use_container_width=True):
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
+
+        _save_session()
+        adveq_pages = {
+            "🏠 Home":           equity_home,
+            "📊 Active Calls":   equity_home,
+            "🚀 Advanced Calls": lambda m: adv_equity_home(m),
+            "📈 Track Record":   equity_track_record,
+            "📄 Research Hub":   member_research,
+            "📢 Updates Feed":   member_updates,
+            "🎬 Video Library":  member_videos,
+            "👤 My Profile":     lambda m: member_profile(m, "adv_equity"),
+        }
+        if page == "📊 Active Calls":
+            st.markdown('<div class="section-header">📊 Active Equity Calls</div>', unsafe_allow_html=True)
+            conn = get_conn()
+            rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            conn.close()
+            if not rows: st.info("No active calls right now.")
+            for r in rows:
+                rr = round((r['target1']-r['entry_price'])/(r['entry_price']-r['stop_loss']),2) if r['entry_price'] and r['stop_loss'] and r['stop_loss']!=r['entry_price'] else None
+                st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
+                  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
+                    <div><span style="font-size:18px;font-weight:800;color:#fff">{r['symbol']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-open">OPEN</span></div>
+                    <div style="font-size:12px;color:#445566">{r['posted_date'] or ''}</div>
+                  </div>
+                  <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:18px;font-weight:700;color:#fff">₹{r['entry_price']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">T1</div><div style="font-size:18px;font-weight:700;color:#00e5ff">₹{r['target1']}</div></div>
+                    {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>T2</div><div style='font-size:18px;font-weight:700;color:#00e5ff'>₹"+str(r['target2'])+"</div></div>" if r['target2'] else ""}
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">SL</div><div style="font-size:18px;font-weight:700;color:#ff6b6b">₹{r['stop_loss']}</div></div>
+                    {"<div><div style='font-size:10px;color:#445566;text-transform:uppercase'>R:R</div><div style='font-size:18px;font-weight:700;color:#ffd700'>1:"+str(rr)+"</div></div>" if rr else ""}
+                  </div>
+                  {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00e5ff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
+                </div>""", unsafe_allow_html=True)
+        else:
+            adveq_pages[page](member)
+        return
+
+    # ── ADVANCED OPTIONS PORTAL ──────────────────────────────────────
+    if portal == "adv_options":
+        member = st.session_state.get("member")
+        if not member or st.session_state.get("active_portal") != "adv_options":
+            st.session_state.pop("member", None)
+            portal_login("adv_options"); return
+
+        with st.sidebar:
+            st.markdown(f'''<div style="text-align:center;padding:14px 8px 4px;">
+              <img src="{NYZTRADE_LOGO_SRC}" style="width:110px;height:auto;border-radius:8px;margin-bottom:4px;border:1px solid #ff6b3533;" alt="NYZTrade">
+              <div style="font-size:9px;color:#4b3a6b;letter-spacing:3px;text-transform:uppercase;margin-top:2px;">Advanced Options</div>
+              <div style="display:inline-block;background:#ff6b3518;color:#ff6b35;border:1px solid #ff6b3544;border-radius:12px;padding:1px 8px;font-size:8px;font-weight:800;letter-spacing:2px;margin-top:3px;">PREMIUM</div>
+            </div>''', unsafe_allow_html=True)
+            st.divider()
+            sidebar_member_info(member, "#ff6b35")
+            page = st.radio("", [
+                "🏠 Home","⚡ Active Calls","🔥 GEX & Gamma Blast","📊 GEX Analysis","📈 Track Record",
+                "📄 Research Hub","📢 Updates Feed","🎬 Video Library","👤 My Profile",
+            ], label_visibility="collapsed")
+            st.divider()
+            if st.button("🚪 Logout", use_container_width=True):
+                _clear_session()
+                st.session_state.clear()
+                st.rerun()
+
+        _save_session()
+        advop_pages = {
+            "🏠 Home":              options_home,
+            "⚡ Active Calls":      options_home,
+            "🔥 GEX & Gamma Blast": lambda m: adv_options_gex_home(m),
+            "📊 GEX Analysis":      options_gex_analysis,
+            "📈 Track Record":      options_track_record,
+            "📄 Research Hub":      member_research,
+            "📢 Updates Feed":      member_updates,
+            "🎬 Video Library":     member_videos,
+            "👤 My Profile":        lambda m: member_profile(m, "adv_options"),
+        }
+        if page == "⚡ Active Calls":
+            st.markdown('<div class="section-header">⚡ Active Options Calls</div>', unsafe_allow_html=True)
+            conn = get_conn()
+            rows = conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            conn.close()
+            if not rows: st.info("No active options calls right now.")
+            for r in rows:
+                st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
+                  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px">
+                    <div><span style="font-size:18px;font-weight:800;color:#fff">{r['underlying']} {r['strike']} {r['option_type']}</span><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span></div>
+                    <div style="font-size:12px;color:#445566">Exp: {r['expiry']}</div>
+                  </div>
+                  <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Entry</div><div style="font-size:18px;font-weight:700;color:#fff">₹{r['entry_premium']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">Target</div><div style="font-size:18px;font-weight:700;color:#ff6b35">₹{r['target_premium']}</div></div>
+                    <div><div style="font-size:10px;color:#445566;text-transform:uppercase">SL</div><div style="font-size:18px;font-weight:700;color:#ff6b6b">₹{r['stop_premium']}</div></div>
+                  </div>
+                  {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#ff6b35'>GEX:</b> "+r['gex_note']+"</div>" if r['gex_note'] else ""}
+                  {"<div style='margin-top:6px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
+                </div>""", unsafe_allow_html=True)
+        else:
+            advop_pages[page](member)
         return
 
     # ── RESEARCH PORTAL ───────────────────────────────────────────────
