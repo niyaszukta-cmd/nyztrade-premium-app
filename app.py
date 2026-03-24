@@ -565,6 +565,7 @@ def init_db():
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def verify_member(username, password):
+    """Verify login credentials AND check subscription is not expired."""
     conn = get_conn()
     cur  = _exec(conn,
         "SELECT * FROM clients WHERE username=? AND password_hash=? AND status='Active'",
@@ -572,7 +573,22 @@ def verify_member(username, password):
     )
     row = _fetchone(cur)
     conn.close()
-    return row
+    if not row:
+        return None, "invalid_credentials"
+    # Check expiry
+    expiry = row.get("expiry_date")
+    if expiry:
+        try:
+            exp_date = date.fromisoformat(str(expiry))
+            if exp_date < date.today():
+                # Auto-mark as Inactive in DB
+                conn2 = get_conn()
+                _exec(conn2, "UPDATE clients SET status='Inactive' WHERE id=?", (row["id"],))
+                conn2.commit(); conn2.close()
+                return None, "expired"
+        except Exception:
+            pass
+    return row, None
 
 def member_has_access(member, portal_type):
     """Check if member's plan gives access to equity or options portal."""
@@ -581,6 +597,26 @@ def member_has_access(member, portal_type):
     return portal_type in allowed
 
 init_db()
+
+def _auto_expire_members():
+    """
+    Run once per app load. Any member whose expiry_date has passed
+    and is still 'Active' gets flipped to 'Inactive' automatically.
+    Silent — no UI output.
+    """
+    try:
+        conn = get_conn()
+        today = str(date.today())
+        _exec(conn,
+            "UPDATE clients SET status='Inactive' WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date < ?",
+            (today,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+_auto_expire_members()  # runs silently on every Streamlit rerun
 
 # Show DB status in sidebar after load (admin only — shown in admin dashboard)
 _DB_STATUS = "🟢 Supabase PostgreSQL (persistent)" if _USE_PG else "🟡 SQLite local (ephemeral — add DATABASE_URL to Secrets)"
@@ -612,17 +648,33 @@ def _load_session():
             # Restore admin flag
             if not st.session_state.get("admin_logged_in") and data.get("admin_logged_in"):
                 st.session_state["admin_logged_in"] = True
-            # Restore member (re-verify from DB to ensure still active)
+            # Restore member — re-verify from DB AND check expiry
             if not st.session_state.get("member") and data.get("member_username"):
                 conn = get_conn()
-                row = _fetchone(_exec(conn, 
+                row = _fetchone(_exec(conn,
                     "SELECT * FROM clients WHERE username=? AND status='Active'",
                     (data["member_username"],)
                 ))
                 conn.close()
                 if row:
-                    st.session_state["member"] = dict(row)
-                    st.session_state["active_portal"] = data.get("active_portal", "equity")
+                    # Check if subscription expired since last login
+                    expiry = row.get("expiry_date")
+                    is_expired = False
+                    if expiry:
+                        try:
+                            if date.fromisoformat(str(expiry)) < date.today():
+                                is_expired = True
+                                conn2 = get_conn()
+                                _exec(conn2, "UPDATE clients SET status='Inactive' WHERE id=?", (row["id"],))
+                                conn2.commit(); conn2.close()
+                        except Exception:
+                            pass
+                    if not is_expired:
+                        st.session_state["member"] = dict(row)
+                        st.session_state["active_portal"] = data.get("active_portal", "equity")
+                    else:
+                        # Wipe session — force re-login with expiry message
+                        _clear_session()
     except Exception:
         pass  # corrupt file — start fresh
 
@@ -1287,7 +1339,7 @@ def portal_login(portal_type):
         password  = st.text_input("Password", type="password", placeholder="Your password")
         submitted = st.form_submit_button(f"Access {title} →", use_container_width=True)
         if submitted:
-            member = verify_member(username, password)
+            member, err = verify_member(username, password)
             if member:
                 # Research hub is accessible to all active members
                 if portal_type == "research" or member_has_access(dict(member), portal_type) or (portal_type in ("adv_equity","adv_options") and member_has_access(dict(member), portal_type)):
@@ -1296,9 +1348,12 @@ def portal_login(portal_type):
                     _save_session()
                     st.rerun()
                 else:
-                    st.error(f"Your plan ({member['plan']}) does not include {title}. Contact Dr. Niyas N to upgrade.")
+                    st.error(f"Your plan ({member['plan']}) does not include access to {title}. Contact Dr. Niyas N to upgrade.")
+            elif err == "expired":
+                st.error("⏰ Your subscription has expired. Please renew to continue. Contact Dr. Niyas N.")
+                st.info("Your data and track record are safely preserved — just renew your plan.")
             else:
-                st.error("Invalid credentials or subscription inactive. Contact Dr. Niyas N.")
+                st.error("❌ Invalid credentials or account inactive. Contact Dr. Niyas N.")
 
     if st.button("← Back to Portal Select", use_container_width=True):
         st.session_state.portal = None
@@ -1867,7 +1922,8 @@ def admin_dashboard():
         (_count(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'"), "Options Open", "#7b61ff"),
         (_count(conn, "SELECT COUNT(*) FROM research_reports"),                  "Reports",      "#ffd700"),
         (_count(conn, "SELECT COUNT(*) FROM broker_calls WHERE status='Active'"),"Broker Calls", "#c084fc"),
-        (_count(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<='" + str(date.today() + timedelta(days=7)) + "' AND status='Active'"), "Expiring 7d","#ff6b6b"),
+        (_count(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<='" + str(date.today() + timedelta(days=7)) + "' AND expiry_date>='" + str(date.today()) + "' AND status='Active'"), "Expiring 7d","#ffd700"),
+        (_count(conn, "SELECT COUNT(*) FROM clients WHERE status='Inactive'"), "Inactive","#ff6b6b"),
     ]
     for col, (val, label, color) in zip(cols, metrics):
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
@@ -2861,8 +2917,34 @@ def member_profile(member, portal_type):
 def sidebar_member_info(member, accent="#a855f7"):
     exp = date.fromisoformat(member['expiry_date']) if member.get('expiry_date') else None
     dl  = (exp - date.today()).days if exp else None
-    dl_color = "#ff6b6b" if dl and dl <= 7 else "#00ffb4"
-    st.sidebar.markdown(f'<div style="background:#041428;border:1px solid #0a2040;border-radius:10px;padding:12px 16px;margin-bottom:16px"><div style="font-weight:700;color:#fff;font-size:15px">{member["name"]}</div><div style="font-size:11px;color:#445566">{member["plan"]}</div><div style="font-size:12px;color:{dl_color};margin-top:6px;font-weight:600">{"⚠️ " if dl and dl<=7 else "✅ "}{f"{dl} days left" if dl else "Active"}</div></div>', unsafe_allow_html=True)
+    # Color and icon based on days left
+    if dl is None:
+        dl_color, dl_icon, dl_text = "#00ffb4", "✅", "Active"
+    elif dl <= 0:
+        dl_color, dl_icon, dl_text = "#ff6b6b", "⏰", "EXPIRED"
+    elif dl <= 3:
+        dl_color, dl_icon, dl_text = "#ff6b6b", "🚨", f"{dl}d left — renew now!"
+    elif dl <= 7:
+        dl_color, dl_icon, dl_text = "#ffd700", "⚠️", f"{dl} days left"
+    elif dl <= 14:
+        dl_color, dl_icon, dl_text = "#ffd700", "⏳", f"{dl} days left"
+    else:
+        dl_color, dl_icon, dl_text = "#00ffb4", "✅", f"{dl} days left"
+
+    st.sidebar.markdown(f'''<div style="background:#041428;border:1px solid #0a2040;border-radius:10px;
+        padding:12px 16px;margin-bottom:8px">
+      <div style="font-weight:700;color:#fff;font-size:15px">{member["name"]}</div>
+      <div style="font-size:11px;color:#445566;margin-top:2px">{member["plan"]}</div>
+      <div style="font-size:12px;color:{dl_color};margin-top:6px;font-weight:600">{dl_icon} {dl_text}</div>
+    </div>''', unsafe_allow_html=True)
+
+    # Show prominent warning banner for near-expiry / expired
+    if dl is not None and dl <= 0:
+        st.sidebar.error("⏰ Subscription expired!")
+    elif dl is not None and dl <= 3:
+        st.sidebar.error(f"🚨 Expires in {dl} day{'s' if dl != 1 else ''}! Contact Dr. Niyas N.")
+    elif dl is not None and dl <= 7:
+        st.sidebar.warning(f"⚠️ {dl} days remaining — renew soon.")
 
 
 # ══════════════════════════════════════════════════════════════════════
