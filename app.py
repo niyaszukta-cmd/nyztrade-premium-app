@@ -363,31 +363,31 @@ def get_conn():
 def _sql(raw: str) -> str:
     """
     Convert SQLite SQL to PostgreSQL SQL when running in PG mode.
-    Handles the most common differences automatically.
+    Handles all common type and syntax differences.
     """
     if not _USE_PG:
         return raw
     import re
     s = raw
-    # Placeholders: ? -> %s
+    # ? -> %s placeholders
     s = re.sub(r"(?<![%'])\?", "%s", s)
-    # Primary key: INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
-    s = re.sub(r"INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY", s, flags=re.IGNORECASE)
-    # AUTOINCREMENT alone
+    # INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+    s = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", s, flags=re.IGNORECASE)
+    # AUTOINCREMENT leftover
     s = re.sub(r"AUTOINCREMENT", "", s, flags=re.IGNORECASE)
+    # DATETIME -> TIMESTAMP  (PostgreSQL has no DATETIME type)
+    s = re.sub(r"DATETIME", "TIMESTAMP", s, flags=re.IGNORECASE)
     # date('now') -> CURRENT_DATE
     s = re.sub(r"date\('now'\)", "CURRENT_DATE", s, flags=re.IGNORECASE)
-    # date('now','-N days') -> CURRENT_DATE - INTERVAL 'N days'
-    s = re.sub(r"date\('now',\s*'-(\d+)\s*days?'\)", r"(CURRENT_DATE - INTERVAL ' days')", s, flags=re.IGNORECASE)
+    # date('now','-N days') -> (CURRENT_DATE - INTERVAL 'N days')
+    def _interval_sub(m):
+        return f"(CURRENT_DATE - INTERVAL '{m.group(1)} days')"
+    s = re.sub(r"date\('now',\s*'-(\d+)\s*days?'\)", _interval_sub, s, flags=re.IGNORECASE)
     # datetime('now') -> NOW()
     s = re.sub(r"datetime\('now'\)", "NOW()", s, flags=re.IGNORECASE)
     # BLOB -> BYTEA
     s = re.sub(r"BLOB", "BYTEA", s, flags=re.IGNORECASE)
-    # CREATE TABLE IF NOT EXISTS — PG supports this natively, no change needed
-    # TEXT DEFAULT ... — compatible
-    # COALESCE — compatible
     return s
-
 
 def _exec(conn, sql: str, params=None):
     """Execute SQL via conn, auto-converting syntax for PG vs SQLite."""
