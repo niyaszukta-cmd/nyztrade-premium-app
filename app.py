@@ -307,7 +307,7 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 #
 # Leave as empty string "" to fall back to local SQLite (data lost on restart).
 
-SUPABASE_URL = "postgresql://postgres.hdnihkcdxmtuprfelwxe:kuttulullu04@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres"   # ← PASTE YOUR URL HERE
+SUPABASE_URL = ""   # ← PASTE YOUR URL HERE
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
@@ -371,9 +371,9 @@ def _sql(raw: str) -> str:
     s = raw
     # ? -> %s placeholders
     s = re.sub(r"(?<![%'])\?", "%s", s)
-    # INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+    # INTEGER PRIMARY KEY -> SERIAL PRIMARY KEY
     s = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", s, flags=re.IGNORECASE)
-    # AUTOINCREMENT leftover
+    # leftover
     s = re.sub(r"AUTOINCREMENT", "", s, flags=re.IGNORECASE)
     # DATETIME -> TIMESTAMP  (PostgreSQL has no DATETIME type)
     s = re.sub(r"DATETIME", "TIMESTAMP", s, flags=re.IGNORECASE)
@@ -496,7 +496,7 @@ def init_db():
     def _ct(sql):
         _exec(conn, sql)
     _ct("""CREATE TABLE IF NOT EXISTS clients (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL,
         username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
         discord_id TEXT, telegram_id TEXT, email TEXT, phone TEXT,
         plan TEXT DEFAULT 'Equity Monthly', status TEXT DEFAULT 'Active',
@@ -504,21 +504,21 @@ def init_db():
         reminder_sent INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER,
+        id SERIAL PRIMARY KEY, client_id INTEGER,
         amount REAL, currency TEXT DEFAULT 'INR',
         plan TEXT, status TEXT DEFAULT 'captured', payment_method TEXT,
         notes TEXT, payment_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(client_id) REFERENCES clients(id))""")
     _ct("""CREATE TABLE IF NOT EXISTS equity_calls (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, symbol TEXT NOT NULL,
         call_type TEXT NOT NULL, entry_price REAL, target1 REAL,
         target2 REAL, stop_loss REAL, cmp REAL, status TEXT DEFAULT 'Open',
         rationale TEXT, result TEXT, exit_price REAL, pnl_pct REAL,
         posted_date TEXT, exit_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS options_calls (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, underlying TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, underlying TEXT NOT NULL,
         option_type TEXT, strike REAL, expiry TEXT, call_type TEXT,
         entry_premium REAL, target_premium REAL, stop_premium REAL,
         cmp_premium REAL, status TEXT DEFAULT 'Open', rationale TEXT,
@@ -526,19 +526,19 @@ def init_db():
         posted_date TEXT, exit_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS daily_updates (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, title TEXT NOT NULL,
         category TEXT, content TEXT, video_url TEXT,
         tags TEXT, posted_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS videos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, title TEXT NOT NULL,
         category TEXT, description TEXT,
         embed_code TEXT,
         duration TEXT, posted_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     # Research reports — PDF stored as BYTEA/BLOB, rendered inline (no download)
     _ct("""CREATE TABLE IF NOT EXISTS research_reports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         broker_house TEXT,
         category TEXT,
@@ -558,7 +558,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     # Broker buy/sell calls (structured table)
     _ct("""CREATE TABLE IF NOT EXISTS broker_calls (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         broker_house TEXT NOT NULL,
         symbol TEXT NOT NULL,
         call_type TEXT NOT NULL,
