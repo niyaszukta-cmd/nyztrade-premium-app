@@ -358,30 +358,30 @@ def get_conn():
 def _sql(raw: str) -> str:
     """
     Convert SQLite SQL to PostgreSQL SQL when running in PG mode.
-    Handles all common type and syntax differences.
+    All regex patterns use raw strings (r"...") to ensure \b works correctly.
     """
     if not _USE_PG:
         return raw
     import re
     s = raw
     # ? -> %s placeholders
-    s = re.sub(r"(?<![%'])\?", "%s", s)
-    # INTEGER PRIMARY KEY -> SERIAL PRIMARY KEY
-    s = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", s, flags=re.IGNORECASE)
-    # leftover
-    s = re.sub(r"AUTOINCREMENT", "", s, flags=re.IGNORECASE)
-    # DATETIME -> TIMESTAMP  (PostgreSQL has no DATETIME type)
-    s = re.sub(r"DATETIME", "TIMESTAMP", s, flags=re.IGNORECASE)
+    s = re.sub(r"(?<![%'])\?", r"%s", s)
+    # INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+    s = re.sub(r"(?i)INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", s)
+    # Leftover AUTOINCREMENT
+    s = re.sub(r"(?i)\bAUTOINCREMENT\b", "", s)
+    # DATETIME -> TIMESTAMP
+    s = re.sub(r"(?i)\bDATETIME\b", "TIMESTAMP", s)
+    # BLOB -> BYTEA
+    s = re.sub(r"(?i)\bBLOB\b", "BYTEA", s)
     # date('now') -> CURRENT_DATE
-    s = re.sub(r"date\('now'\)", "CURRENT_DATE", s, flags=re.IGNORECASE)
+    s = re.sub(r"(?i)date\('now'\)", "CURRENT_DATE", s)
     # date('now','-N days') -> (CURRENT_DATE - INTERVAL 'N days')
     def _interval_sub(m):
         return f"(CURRENT_DATE - INTERVAL '{m.group(1)} days')"
-    s = re.sub(r"date\('now',\s*'-(\d+)\s*days?'\)", _interval_sub, s, flags=re.IGNORECASE)
+    s = re.sub(r"(?i)date\('now',\s*'-(\d+)\s*days?'\)", _interval_sub, s)
     # datetime('now') -> NOW()
-    s = re.sub(r"datetime\('now'\)", "NOW()", s, flags=re.IGNORECASE)
-    # BLOB -> BYTEA
-    s = re.sub(r"BLOB", "BYTEA", s, flags=re.IGNORECASE)
+    s = re.sub(r"(?i)datetime\('now'\)", "NOW()", s)
     return s
 
 def _exec(conn, sql: str, params=None):
@@ -428,7 +428,7 @@ def _migrate_db(conn):
     """
     # Step 1: Always try to ADD new columns (silently skipped if they exist)
     add_cols = [
-        "ALTER TABLE research_reports ADD COLUMN pdf_data BLOB",
+        "ALTER TABLE research_reports ADD COLUMN pdf_data BYTEA",
         "ALTER TABLE research_reports ADD COLUMN pdf_filename TEXT",
         "ALTER TABLE research_reports ADD COLUMN notes TEXT",
         "ALTER TABLE research_reports ADD COLUMN visible_to TEXT DEFAULT 'all'",
@@ -548,7 +548,7 @@ def init_db():
         tags TEXT,
         notes TEXT,
         visible_to TEXT DEFAULT 'all',
-        pdf_data BLOB,
+        pdf_data BYTEA,
         pdf_filename TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     # Broker buy/sell calls (structured table)
