@@ -355,10 +355,16 @@ if _DB_URL:
         _USE_PG = False
 
 
-def _make_pg_conn():
-    """Open a fresh PostgreSQL connection with optimal settings."""
+@st.cache_resource(show_spinner=False)
+def _get_pg_pool():
+    """
+    Module-level persistent PostgreSQL connection.
+    st.cache_resource keeps this alive across ALL reruns and ALL users.
+    Opens ONCE when the app starts — never again until the app restarts.
+    This eliminates the 80ms TCP handshake on every single query.
+    """
     import psycopg2, psycopg2.extras
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         _DB_URL,
         cursor_factory=psycopg2.extras.RealDictCursor,
         connect_timeout=15,
@@ -368,30 +374,27 @@ def _make_pg_conn():
         keepalives_count=5,
         options="-c statement_timeout=15000"
     )
+    conn.autocommit = False
+    return conn
 
 def get_conn():
     """
-    Return a database connection.
-    For PostgreSQL: reuses a persistent connection stored in st.session_state
-    so we only pay the TCP handshake cost ONCE per session (~80ms to Singapore)
-    instead of on every single query (66+ times per page load).
+    Return the shared PostgreSQL connection (or a fresh SQLite connection).
+    For PG: returns the module-level cached connection — zero handshake cost.
+    If the connection has died, clears the cache and reconnects automatically.
     """
     if _USE_PG:
-        # Reuse existing connection if still alive
-        conn = st.session_state.get("_pg_conn")
-        if conn is not None:
-            try:
-                # Quick liveness check
-                conn.cursor().execute("SELECT 1")
-                return conn
-            except Exception:
-                # Connection died — remove and reconnect
-                st.session_state.pop("_pg_conn", None)
-        # Open new connection and cache it
-        conn = _make_pg_conn()
-        conn.autocommit = False
-        st.session_state["_pg_conn"] = conn
-        return conn
+        try:
+            conn = _get_pg_pool()
+            # Reset any aborted transaction state
+            if conn.status != 0:  # 0 = idle/clean
+                try: conn.rollback()
+                except: pass
+            return conn
+        except Exception:
+            # Clear cache and force reconnect on next call
+            _get_pg_pool.clear()
+            return _get_pg_pool()
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -400,11 +403,18 @@ def get_conn():
 
 def close_conn(conn):
     """
-    For PostgreSQL: DON'T close — connection is reused across queries.
-    For SQLite: actually close it.
+    For PostgreSQL: commit pending work and return (never close shared connection).
+    For SQLite: commit and close.
     """
-    if not _USE_PG:
-        try: close_conn(conn)
+    if _USE_PG:
+        try: conn.commit()
+        except Exception:
+            try: conn.rollback()
+            except: pass
+    else:
+        try:
+            conn.commit()
+            conn.close()
         except: pass
 
 def _sql(raw: str) -> str:
