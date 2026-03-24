@@ -355,46 +355,17 @@ if _DB_URL:
         _USE_PG = False
 
 
-@st.cache_resource(show_spinner=False)
-def _get_pg_pool():
-    """
-    Module-level persistent PostgreSQL connection.
-    st.cache_resource keeps this alive across ALL reruns and ALL users.
-    Opens ONCE when the app starts — never again until the app restarts.
-    This eliminates the 80ms TCP handshake on every single query.
-    """
-    import psycopg2, psycopg2.extras
-    conn = psycopg2.connect(
-        _DB_URL,
-        cursor_factory=psycopg2.extras.RealDictCursor,
-        connect_timeout=15,
-        keepalives=1,
-        keepalives_idle=60,
-        keepalives_interval=10,
-        keepalives_count=5,
-        options="-c statement_timeout=15000"
-    )
-    conn.autocommit = False
-    return conn
-
 def get_conn():
-    """
-    Return the shared PostgreSQL connection (or a fresh SQLite connection).
-    For PG: returns the module-level cached connection — zero handshake cost.
-    If the connection has died, clears the cache and reconnects automatically.
-    """
+    """Simple fresh connection per call. autocommit=True avoids transaction overhead."""
     if _USE_PG:
-        try:
-            conn = _get_pg_pool()
-            # Reset any aborted transaction state
-            if conn.status != 0:  # 0 = idle/clean
-                try: conn.rollback()
-                except: pass
-            return conn
-        except Exception:
-            # Clear cache and force reconnect on next call
-            _get_pg_pool.clear()
-            return _get_pg_pool()
+        import psycopg2, psycopg2.extras
+        conn = psycopg2.connect(
+            _DB_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=10,
+        )
+        conn.autocommit = True
+        return conn
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -402,20 +373,9 @@ def get_conn():
 
 
 def close_conn(conn):
-    """
-    For PostgreSQL: commit pending work and return (never close shared connection).
-    For SQLite: commit and close.
-    """
-    if _USE_PG:
-        try: conn.commit()
-        except Exception:
-            try: conn.rollback()
-            except: pass
-    else:
-        try:
-            conn.commit()
-            conn.close()
-        except: pass
+    """Close connection. For PG with autocommit=True no commit needed."""
+    try: conn.close()
+    except: pass
 
 def _sql(raw: str) -> str:
     """
@@ -515,7 +475,7 @@ def _migrate_db(conn):
     for sql in add_cols:
         try:
             _exec(conn, sql)
-            if _USE_PG: conn.commit()
+            pass  # autocommit=True — no explicit commit needed
         except Exception:
             if _USE_PG:
                 try: conn.rollback()
@@ -527,7 +487,7 @@ def _migrate_db(conn):
     except Exception:
         try:
             _exec(conn, "DROP TABLE IF EXISTS research_reports")
-            if _USE_PG: conn.commit()
+            pass  # autocommit=True — no explicit commit needed
         except Exception:
             if _USE_PG:
                 try: conn.rollback()
@@ -536,7 +496,7 @@ def _migrate_db(conn):
     # Step 3: Fix NULL visible_to values in existing rows
     try:
         _exec(conn, "UPDATE research_reports SET visible_to='all' WHERE visible_to IS NULL")
-        if _USE_PG: conn.commit()
+        pass  # autocommit=True — no explicit commit needed
     except Exception:
         pass
 
@@ -553,7 +513,7 @@ def init_db():
     def _ct(sql):
         try:
             _exec(conn, sql)
-            if _USE_PG: conn.commit()
+            pass  # autocommit=True — no explicit commit needed
         except Exception as e:
             # Table may already exist with different schema — rollback and continue
             if _USE_PG:
