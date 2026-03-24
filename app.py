@@ -489,7 +489,14 @@ def init_db():
     # Run migrations first so old DBs get upgraded before we touch them
     _migrate_db(conn)
     def _ct(sql):
-        _exec(conn, sql)
+        try:
+            _exec(conn, sql)
+            if _USE_PG: conn.commit()
+        except Exception as e:
+            # Table may already exist with different schema — rollback and continue
+            if _USE_PG:
+                try: conn.rollback()
+                except: pass
     _ct("""CREATE TABLE IF NOT EXISTS clients (
         id SERIAL PRIMARY KEY, name TEXT NOT NULL,
         username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
@@ -568,8 +575,32 @@ def init_db():
         status TEXT DEFAULT 'Active',
         call_date TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-    if _USE_PG: conn.commit()
-    else: conn.commit()
+    # For PostgreSQL: reset sequences to avoid conflicts on re-runs
+    if _USE_PG:
+        seq_resets = [
+            "SELECT setval(pg_get_serial_sequence('clients','id'), COALESCE(MAX(id),0)+1, false) FROM clients",
+            "SELECT setval(pg_get_serial_sequence('payments','id'), COALESCE(MAX(id),0)+1, false) FROM payments",
+            "SELECT setval(pg_get_serial_sequence('equity_calls','id'), COALESCE(MAX(id),0)+1, false) FROM equity_calls",
+            "SELECT setval(pg_get_serial_sequence('options_calls','id'), COALESCE(MAX(id),0)+1, false) FROM options_calls",
+            "SELECT setval(pg_get_serial_sequence('daily_updates','id'), COALESCE(MAX(id),0)+1, false) FROM daily_updates",
+            "SELECT setval(pg_get_serial_sequence('videos','id'), COALESCE(MAX(id),0)+1, false) FROM videos",
+            "SELECT setval(pg_get_serial_sequence('research_reports','id'), COALESCE(MAX(id),0)+1, false) FROM research_reports",
+            "SELECT setval(pg_get_serial_sequence('broker_calls','id'), COALESCE(MAX(id),0)+1, false) FROM broker_calls",
+        ]
+        for sql in seq_resets:
+            try:
+                _exec(conn, sql)
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except: pass
+
+    try:
+        conn.commit()
+    except Exception:
+        if _USE_PG:
+            try: conn.rollback()
+            except: pass
     conn.close()
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
@@ -624,7 +655,11 @@ def _auto_expire_members():
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
 
 _auto_expire_members()  # runs silently on every Streamlit rerun
 
