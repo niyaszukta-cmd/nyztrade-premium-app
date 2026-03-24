@@ -310,6 +310,22 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
 
+# ── Page loading spinner ──────────────────────────────────────────────
+_LOADING_MSGS = [
+    "📡 Connecting to servers...",
+    "📊 Fetching your data...",
+    "⚡ Loading positions...",
+    "🔍 Reading database...",
+    "📈 Crunching numbers...",
+    "🚀 Almost ready...",
+]
+
+def show_loader(msg=None):
+    """Show a fun loading message while data loads."""
+    import random
+    m = msg or random.choice(_LOADING_MSGS)
+    return st.empty()
+
 # ── Query result cache (30s TTL) — reduces Supabase round trips ───────
 # Call invalidate_cache() after any INSERT/UPDATE/DELETE to refresh data.
 _QUERY_CACHE = {}
@@ -1678,15 +1694,14 @@ def admin_research():
             col_btn, col_status = st.columns([2, 5])
             if col_btn.button("✨ Extract & Auto-Fill", type="primary", use_container_width=True):
                 with st.spinner("📖 Reading PDF text..."):
-                    pdf_bytes_preview = uploaded_pdf.read()
                     uploaded_pdf.seek(0)  # reset for later save
                     pdf_text = _extract_pdf_text(pdf_bytes_preview)
 
                 if not pdf_text:
                     st.warning("⚠️ Could not extract text from this PDF (may be scanned image). Fill fields manually.")
                 else:
-                    with st.spinner("🤖 Llama 3.3 70B is analysing the report..."): 
-                        parsed = _parse_report_with_grok(pdf_text, BROKER_HOUSES, REPORT_CATEGORIES)
+                    with st.spinner("🤖 Llama 3.3 70B is analysing the report..."):
+                        parsed = _parse_report_with_grok(pdf_text)
 
                     if parsed.get("_error") and "429" in parsed["_error"]:
                         st.warning("⚠️ Groq rate limit hit. Wait 30 seconds and try again.")
@@ -3099,7 +3114,16 @@ def main():
             "🎬 Video Library":       admin_videos,
             "👥 Client Management":   admin_clients,
         }
-        pages[page]()
+        _spinner_msgs = {
+            "🏠 Dashboard":         "📡 Loading dashboard...",
+            "📊 Equity Calls":      "📊 Fetching equity calls...",
+            "⚡ Options & GEX":     "⚡ Loading options data...",
+            "📄 Research & Broker": "📄 Loading research reports...",
+            "🎬 Video Library":     "🎬 Loading videos...",
+            "👥 Client Management": "👥 Loading client data...",
+        }
+        with st.spinner(_spinner_msgs.get(page, "⏳ Loading...")):
+            pages[page]()
         return
 
     # ── EQUITY PORTAL ─────────────────────────────────────────────────
@@ -3135,6 +3159,14 @@ def main():
             "🎬 Video Library": member_videos,
             "👤 My Profile":    lambda m: member_profile(m, "equity"),
         }
+        _eq_msgs = {
+            "🏠 Home":          "📈 Loading your calls...",
+            "📊 Active Calls":  "📊 Fetching active positions...",
+            "📈 Track Record":  "🏆 Loading track record...",
+            "📄 Research Hub":  "📄 Loading research...",
+            "🎬 Video Library": "🎬 Loading videos...",
+            "👤 My Profile":    "👤 Loading profile...",
+        }
         if page == "📊 Active Calls":
             st.markdown('<div class="section-header">📊 Active Equity Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
@@ -3158,7 +3190,8 @@ def main():
                   {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
-            eq_pages[page](member)
+            with st.spinner(_eq_msgs.get(page, "⏳ Loading...")):
+                    eq_pages[page](member)
         return
 
     # ── OPTIONS PORTAL ────────────────────────────────────────────────
@@ -3194,6 +3227,14 @@ def main():
             "🎬 Video Library": member_videos,
             "👤 My Profile":    lambda m: member_profile(m, "options"),
         }
+        _op_msgs = {
+            "🏠 Home":          "⚡ Loading options data...",
+            "📊 GEX Analysis":  "🔍 Loading GEX analysis...",
+            "📈 Track Record":  "🏆 Loading track record...",
+            "📄 Research Hub":  "📄 Loading research...",
+            "🎬 Video Library": "🎬 Loading videos...",
+            "👤 My Profile":    "👤 Loading profile...",
+        }
         if page == "⚡ Active Calls":
             st.markdown('<div class="section-header">⚡ Active Options Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
@@ -3215,7 +3256,8 @@ def main():
                   {"<div style='margin-top:6px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
-            op_pages[page](member)
+            with st.spinner(_op_msgs.get(page, "⏳ Loading...")):
+                    op_pages[page](member)
         return
 
     # ── ADVANCED EQUITY PORTAL ───────────────────────────────────────
@@ -3276,7 +3318,8 @@ def main():
                   {"<div style='margin-top:10px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00e5ff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
-            adveq_pages[page](member)
+            with st.spinner("⏳ Loading..."):
+                adveq_pages[page](member)
         return
 
     # ── ADVANCED OPTIONS PORTAL ──────────────────────────────────────
@@ -3336,7 +3379,8 @@ def main():
                   {"<div style='margin-top:6px;background:#020e20;border-radius:6px;padding:8px;font-size:13px;color:#c0d0e0'><b style='color:#00ddff'>Analysis:</b> "+r['rationale']+"</div>" if r['rationale'] else ""}
                 </div>""", unsafe_allow_html=True)
         else:
-            advop_pages[page](member)
+            with st.spinner("⏳ Loading..."):
+                advop_pages[page](member)
         return
 
     # ── ADVANCED COMBO PORTAL ────────────────────────────────────────
@@ -3378,7 +3422,8 @@ def main():
             "🎬 Video Library":  member_videos,
             "👤 My Profile":     lambda m: member_profile(m, "adv_combo"),
         }
-        advc_pages[page](member)
+        with st.spinner("💎 Loading..."):
+            advc_pages[page](member)
         return
 
     # ── RESEARCH PORTAL ───────────────────────────────────────────────
@@ -3410,7 +3455,8 @@ def main():
             "🏦 Broker Calls":     member_research,
             "👤 My Profile":       lambda m: member_profile(m, "research"),
         }
-        res_pages[page](member)
+        with st.spinner("📄 Loading..."):
+            res_pages[page](member)
         return
 
 
