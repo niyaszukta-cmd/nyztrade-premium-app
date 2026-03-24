@@ -287,62 +287,64 @@ input, textarea, select {
 ::-webkit-scrollbar-track { background: #0a0715; }
 ::-webkit-scrollbar-thumb { background: #3d1f6b; border-radius: 3px; }
 
-/* ── SIDEBAR COLLAPSE BUTTON — fixed position, always visible ── */
-[data-testid="stSidebarCollapsedControl"] {
-    position: fixed !important;
-    top: auto !important;
-    bottom: 24px !important;
-    left: 12px !important;
-    z-index: 99999 !important;
-    background: #1a0f2e !important;
-    border: 1px solid #3d1f6b !important;
-    border-radius: 50% !important;
-    width: 36px !important;
-    height: 36px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    box-shadow: 0 2px 12px rgba(168,85,247,0.3) !important;
-}
-[data-testid="stSidebarCollapsedControl"]:hover {
-    background: #2d1f4e !important;
-    border-color: #a855f7 !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg {
-    fill: #a855f7 !important;
-    width: 16px !important;
-    height: 16px !important;
-}
-/* Also fix the expand button when sidebar is collapsed */
+/* ── SIDEBAR TOGGLE — always visible, bottom-left ── */
+/* Collapsed state: the expand button floating in the page */
+[data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"] {
     position: fixed !important;
-    bottom: 24px !important;
-    left: 12px !important;
-    z-index: 99999 !important;
-    background: #1a0f2e !important;
-    border: 1px solid #3d1f6b !important;
-    border-radius: 50% !important;
-    width: 36px !important;
-    height: 36px !important;
+    top: auto !important;
+    bottom: 20px !important;
+    left: 10px !important;
+    right: auto !important;
+    z-index: 999999 !important;
     opacity: 1 !important;
     visibility: visible !important;
+    pointer-events: all !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    box-shadow: 0 2px 12px rgba(168,85,247,0.3) !important;
+    width: 38px !important;
+    height: 38px !important;
+    background: #1a0f2e !important;
+    border: 1px solid #a855f7 !important;
+    border-radius: 50% !important;
+    box-shadow: 0 0 14px rgba(168,85,247,0.4) !important;
+    cursor: pointer !important;
 }
-/* Move the inline collapse arrows out of the logo area */
-[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child > button {
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button {
+    opacity: 1 !important;
+    visibility: visible !important;
+    color: #a855f7 !important;
+    background: transparent !important;
+    border: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg {
+    fill: #a855f7 !important;
+    stroke: #a855f7 !important;
+    width: 18px !important;
+    height: 18px !important;
+}
+/* The inline << button inside the sidebar — move to bottom */
+[data-testid="stSidebar"] button[kind="header"],
+[data-testid="stSidebar"] [data-testid="stBaseButton-header"] {
     position: fixed !important;
-    bottom: 24px !important;
-    left: 12px !important;
+    bottom: 20px !important;
+    left: 10px !important;
     top: auto !important;
-    z-index: 99999 !important;
-}
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
-    padding-top: 0 !important;
+    z-index: 999999 !important;
+    background: #1a0f2e !important;
+    border: 1px solid #a855f7 !important;
+    border-radius: 50% !important;
+    width: 38px !important;
+    height: 38px !important;
+    box-shadow: 0 0 14px rgba(168,85,247,0.4) !important;
 }
 
 /* ── LOADING OVERLAY ── */
@@ -489,12 +491,56 @@ st.markdown('''
     });
   }
 
+  // Force sidebar toggle button always visible
+  function fixSidebarToggle() {
+    const targets = [
+      doc.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+      doc.querySelector('[data-testid="collapsedControl"]'),
+    ];
+    targets.forEach(function(el) {
+      if (!el) return;
+      el.style.cssText = [
+        "position:fixed!important",
+        "bottom:20px!important",
+        "left:10px!important",
+        "top:auto!important",
+        "right:auto!important",
+        "z-index:999999!important",
+        "opacity:1!important",
+        "visibility:visible!important",
+        "display:flex!important",
+        "width:38px!important",
+        "height:38px!important",
+        "background:#1a0f2e!important",
+        "border:1px solid #a855f7!important",
+        "border-radius:50%!important",
+        "box-shadow:0 0 14px rgba(168,85,247,0.4)!important",
+        "align-items:center!important",
+        "justify-content:center!important",
+        "pointer-events:all!important",
+      ].join(";");
+      // Also fix child button
+      const btn = el.querySelector("button");
+      if (btn) {
+        btn.style.cssText = "opacity:1!important;visibility:visible!important;background:transparent!important;border:none!important;width:100%!important;height:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;";
+      }
+      const svg = el.querySelector("svg");
+      if (svg) {
+        svg.style.cssText = "fill:#a855f7!important;stroke:#a855f7!important;width:18px!important;height:18px!important;";
+      }
+    });
+  }
+
   // Poll aggressively for the first 15 seconds, then slow down
   let n = 0;
   const fast = setInterval(function() {
     attachAll();
+    fixSidebarToggle();
     n++;
-    if (n > 50) { clearInterval(fast); setInterval(attachAll, 2000); }
+    if (n > 50) {
+      clearInterval(fast);
+      setInterval(function() { attachAll(); fixSidebarToggle(); }, 2000);
+    }
   }, 300);
 
 })();
