@@ -307,7 +307,7 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 #
 # Leave as empty string "" to fall back to local SQLite (data lost on restart).
 
-SUPABASE_URL = ""   # ← PASTE YOUR URL HERE
+SUPABASE_URL = "postgresql://postgres.hdnihkcdxmtuprfelwxe:kuttulullu04@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres"   # ← PASTE YOUR URL HERE
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
