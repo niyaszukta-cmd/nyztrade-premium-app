@@ -574,10 +574,12 @@ def _sql(raw: str) -> str:
     s = re.sub(r"(?i)\bBLOB\b", "BYTEA", s)
     # date('now') -> CURRENT_DATE
     s = re.sub(r"(?i)date\('now'\)", "CURRENT_DATE", s)
+    # date('now','+N days') -> (CURRENT_DATE + INTERVAL 'N days')
+    s = re.sub(r"date\('now',\s*'\+(\d+)\s*days?'\)",
+               lambda m: "(CURRENT_DATE + INTERVAL '" + m.group(1) + " days')", s, flags=re.IGNORECASE)
     # date('now','-N days') -> (CURRENT_DATE - INTERVAL 'N days')
-    def _interval_sub(m):
-        return f"(CURRENT_DATE - INTERVAL '{m.group(1)} days')"
-    s = re.sub(r"(?i)date\('now',\s*'-(\d+)\s*days?'\)", _interval_sub, s)
+    s = re.sub(r"date\('now',\s*'-(\d+)\s*days?'\)",
+               lambda m: "(CURRENT_DATE - INTERVAL '" + m.group(1) + " days')", s, flags=re.IGNORECASE)
     # datetime('now') -> NOW()
     s = re.sub(r"(?i)datetime\('now'\)", "NOW()", s)
     return s
@@ -2265,7 +2267,7 @@ def admin_equity():
                 result = ec2.selectbox("Result", ["Target Hit","Stop Hit","Partial","Manual"], key=f"res{r['id']}")
                 if ec3.button("✅ Close", key=f"cl{r['id']}"):
                     pnl = round(((exit_p-r['entry_price'])/r['entry_price']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_price'] else 0
-                    _exec(conn, "UPDATE equity_calls SET status='Closed',exit_price=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
+                    _exec(conn, "UPDATE equity_calls SET status='Closed',exit_price=?,result=?,pnl_pct=?,exit_date=? WHERE id=?",(exit_p,result,pnl,str(date.today()),r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
                 if ec4.button("🗑️ Delete", key=f"eq_del{r['id']}"):
                     _exec(conn, "DELETE FROM equity_calls WHERE id=?", (r['id'],))
@@ -2424,7 +2426,7 @@ def admin_options():
                 result=ec2.selectbox("Result",["Target Hit","Stop Hit","Expiry","Manual"],key=f"op_res{r['id']}")
                 if ec3.button("✅ Close",key=f"op_cl{r['id']}"):
                     pnl=round(((exit_p-r['entry_premium'])/r['entry_premium']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_premium'] else 0
-                    _exec(conn, "UPDATE options_calls SET status='Closed',exit_premium=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
+                    _exec(conn, "UPDATE options_calls SET status='Closed',exit_premium=?,result=?,pnl_pct=?,exit_date=? WHERE id=?",(exit_p,result,pnl,str(date.today()),r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
                 if ec4.button("🗑️ Delete",key=f"op_del{r['id']}"):
                     _exec(conn, "DELETE FROM options_calls WHERE id=?", (r['id'],))
@@ -2687,7 +2689,7 @@ def admin_clients():
             else:
                 st.info("No payments logged yet.")
     with tab4:
-        conn=get_conn(); rows=_fetchall(_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date")); close_conn(conn)
+        conn=get_conn(); rows=_fetchall(_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=? ORDER BY expiry_date", (str(date.today() + timedelta(days=7)),))); close_conn(conn)
         if not rows: st.success("✅ No renewals due in 7 days.")
         else:
             st.warning(f"⚠️ {len(rows)} member(s) expiring soon!")
