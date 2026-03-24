@@ -307,25 +307,12 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 #
 # Leave as empty string "" to fall back to local SQLite (data lost on restart).
 
-# ╔══════════════════════════════════════════════════════════════════════╗
-# ║  PASTE YOUR SUPABASE URL ON THE LINE BELOW — replace everything     ║
-# ║  between the quotes with your actual URL (no brackets in password)  ║
-# ╚══════════════════════════════════════════════════════════════════════╝
-SUPABASE_URL = "postgresql://postgres.hdnihkcdxmtuprfelwxe:kuttulullu04@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres"   # ← PASTE URL HERE e.g. "postgresql://postgres.xxx:pass@host:5432/postgres"
-
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
 
 def _get_db_url() -> str:
-    """Return hardcoded SUPABASE_URL, or fall back to Secrets / env."""
-    # 1. Hardcoded URL takes priority — checks it looks like a real URL
-    if (SUPABASE_URL
-            and SUPABASE_URL.strip()
-            and SUPABASE_URL.strip().startswith("postgresql://")
-            and "[YOUR-PASSWORD]" not in SUPABASE_URL
-            and "postgres.[ref]" not in SUPABASE_URL):
-        return SUPABASE_URL.strip()
-    # 2. Streamlit Secrets fallback
+    """Read DATABASE_URL from Streamlit Secrets (TOML) or environment."""
+    # Try each key name variant — Streamlit Secrets (TOML)
     for k in ("DATABASE_URL", "database_url", "SUPABASE_DB_URL"):
         try:
             v = st.secrets[k]
@@ -338,7 +325,7 @@ def _get_db_url() -> str:
             if v and str(v).strip(): return str(v).strip()
     except Exception:
         pass
-    # 3. Environment variable fallback
+    # Environment variable fallback (for local dev)
     return os.environ.get("DATABASE_URL", "")
 
 _DB_URL = _get_db_url()
