@@ -296,20 +296,28 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 <meta name="theme-color" content="#08070f">''', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
-# DATABASE — Supabase PostgreSQL (primary) with SQLite local fallback
+# DATABASE — Supabase PostgreSQL (hardcoded — persistent across restarts)
 # ══════════════════════════════════════════════════════════════════════
 #
-# Set in Streamlit Secrets:
-#   DATABASE_URL = "postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres"
+# ⚠️  PASTE YOUR SUPABASE URL BELOW — replace the placeholder entirely.
+#     Get it from: supabase.com → your project → Settings → Database → URI
 #
-# If DATABASE_URL is absent, falls back to local SQLite (dev only — data
-# WILL be lost on Streamlit Cloud restarts without this secret).
+# FORMAT:
+#   postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
+#
+# Leave as empty string "" to fall back to local SQLite (data lost on restart).
+
+SUPABASE_URL = "postgresql://postgres.hdnihkcdxmtuprfelwxe:kuttulullu04@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres"   # ← PASTE YOUR URL HERE
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
 _USE_PG = False   # resolved at startup below
 
 def _get_db_url() -> str:
-    """Retrieve DATABASE_URL from secrets or environment."""
+    """Return hardcoded SUPABASE_URL, or fall back to Secrets / env."""
+    # 1. Hardcoded URL takes priority
+    if SUPABASE_URL and SUPABASE_URL.strip() and "postgres.[ref]" not in SUPABASE_URL:
+        return SUPABASE_URL.strip()
+    # 2. Streamlit Secrets fallback
     for k in ("DATABASE_URL", "database_url", "SUPABASE_DB_URL"):
         try:
             v = st.secrets[k]
@@ -322,6 +330,7 @@ def _get_db_url() -> str:
             if v and str(v).strip(): return str(v).strip()
     except Exception:
         pass
+    # 3. Environment variable fallback
     return os.environ.get("DATABASE_URL", "")
 
 _DB_URL = _get_db_url()
@@ -2143,6 +2152,27 @@ def admin_options():
                 conn=get_conn(); _exec(conn, "INSERT INTO daily_updates (title,category,content,posted_date,tags) VALUES(?,?,?,?,?)",(f"GEX Weekly — {week_date}","GEX",content,str(week_date),"GEX,Options,Weekly")); conn.commit(); conn.close()
                 if send_disc: ok,_=discord_embed("options",f"📊 GEX Weekly — {week_date}",content,0x7B61FF)
                 st.success("✅ GEX update posted")
+        # ── All GEX posts listing with delete ─────────────────────────
+        st.markdown("---")
+        st.markdown("##### 📋 Posted GEX Updates")
+        conn_gex = get_conn()
+        gex_rows = _fetchall(_exec(conn_gex, "SELECT * FROM daily_updates WHERE category='GEX' ORDER BY created_at DESC"))
+        conn_gex.close()
+        if not gex_rows:
+            st.info("No GEX updates posted yet.")
+        else:
+            st.markdown(f'<div style="font-size:12px;color:#445566;margin-bottom:10px">{len(gex_rows)} update(s)</div>', unsafe_allow_html=True)
+            for g in gex_rows:
+                gcol, gdel = st.columns([10, 1])
+                with gcol:
+                    with st.expander(f"📊 {g['title']} — {g['posted_date']}"):
+                        st.markdown(g['content'] or "")
+                with gdel:
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    if st.button("🗑️", key=f"gex_del_{g['id']}", help="Delete this GEX update"):
+                        conn2 = get_conn()
+                        _exec(conn2, "DELETE FROM daily_updates WHERE id=?", (g['id'],))
+                        conn2.commit(); conn2.close(); st.rerun()
     with tab3:
         conn=get_conn()
         for r in _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC")):
@@ -2402,9 +2432,20 @@ def admin_clients():
             conn3=get_conn(); pays=_fetchall(_exec(conn3, "SELECT p.*,c.name,c.username FROM payments p LEFT JOIN clients c ON p.client_id=c.id ORDER BY p.created_at DESC")); conn3.close()
             if pays:
                 total=sum(p['amount'] for p in pays if p['amount'])
-                st.markdown(f'<div class="metric-card" style="max-width:300px"><div class="metric-value" style="color:#00ffb4">₹{total:,.0f}</div><div class="metric-label">Total Revenue</div></div>',unsafe_allow_html=True)
+                pm1, pm2 = st.columns([2, 5])
+                pm1.markdown(f'<div class="metric-card"><div class="metric-value" style="color:#00ffb4">₹{total:,.0f}</div><div class="metric-label">Total Revenue · {len(pays)} records</div></div>',unsafe_allow_html=True)
                 for p in pays:
-                    st.markdown(f'<div class="call-card"><b style="color:#fff">{p["name"] or "Unknown"}</b> <span style="color:#445566">@{p["username"] or "—"}</span><span style="color:#00ffb4;float:right;font-weight:800;font-size:20px">₹{p["amount"]:,.0f}</span><br><span style="color:#99aabb;font-size:13px">{p["plan"]} | {p["payment_method"] or "—"} | {p["notes"] or "—"} | {p["payment_date"] or "—"}</span></div>',unsafe_allow_html=True)
+                    pcol, pdel = st.columns([10, 1])
+                    with pcol:
+                        st.markdown(f'<div class="call-card"><b style="color:#fff">{p["name"] or "Unknown"}</b> <span style="color:#445566">@{p["username"] or "—"}</span><span style="color:#00ffb4;float:right;font-weight:800;font-size:20px">₹{p["amount"]:,.0f}</span><br><span style="color:#99aabb;font-size:13px">{p["plan"]} | {p["payment_method"] or "—"} | {p["notes"] or "—"} | {p["payment_date"] or "—"}</span></div>',unsafe_allow_html=True)
+                    with pdel:
+                        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"pay_del_{p['id']}", help="Delete this payment record"):
+                            conn4 = get_conn()
+                            _exec(conn4, "DELETE FROM payments WHERE id=?", (p['id'],))
+                            conn4.commit(); conn4.close(); st.rerun()
+            else:
+                st.info("No payments logged yet.")
     with tab4:
         conn=get_conn(); rows=_fetchall(_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date")); conn.close()
         if not rows: st.success("✅ No renewals due in 7 days.")
