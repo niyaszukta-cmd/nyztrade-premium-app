@@ -286,6 +286,52 @@ input, textarea, select {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #0a0715; }
 ::-webkit-scrollbar-thumb { background: #3d1f6b; border-radius: 3px; }
+
+/* ── LOADING OVERLAY ── */
+#nyz-loader {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: rgba(8, 7, 15, 0.92);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+#nyz-loader.active { display: flex; }
+#nyz-loader .nyz-spinner {
+    width: 56px; height: 56px;
+    border: 3px solid #2d1f4e;
+    border-top: 3px solid #a855f7;
+    border-right: 3px solid #00ddff;
+    border-radius: 50%;
+    animation: nyz-spin 0.8s linear infinite;
+}
+@keyframes nyz-spin { to { transform: rotate(360deg); } }
+#nyz-loader .nyz-msg {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: #e2d9f3;
+    letter-spacing: 0.3px;
+    text-align: center;
+}
+#nyz-loader .nyz-sub {
+    font-size: 12px;
+    color: #4b3a6b;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+#nyz-loader .nyz-logo {
+    font-size: 11px;
+    color: #3d1f6b;
+    margin-top: 8px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
 </style>
 """
 st.markdown(DARK_CSS, unsafe_allow_html=True)
@@ -294,6 +340,120 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#08070f">''', unsafe_allow_html=True)
+
+# ── Full-screen loading overlay ───────────────────────────────────────
+st.markdown('''
+<div id="nyz-loader">
+  <div class="nyz-spinner"></div>
+  <div class="nyz-msg" id="nyz-msg">Loading...</div>
+  <div class="nyz-sub" id="nyz-sub">Please wait</div>
+  <div class="nyz-logo">NYZTrade Premium</div>
+</div>
+
+<script>
+(function() {
+  const MESSAGES = [
+    ["📡 Connecting to servers...",    "Fetching your data"],
+    ["📊 Loading your dashboard...",   "Crunching the numbers"],
+    ["⚡ Fetching latest calls...",    "Almost ready"],
+    ["🔍 Reading the database...",     "Hang tight"],
+    ["📈 Loading market data...",      "Analysing positions"],
+    ["🚀 Preparing your portal...",    "Just a moment"],
+    ["🎯 Syncing live data...",        "Loading your workspace"],
+    ["💎 Loading premium content...",  "Worth the wait"],
+  ];
+
+  function showLoader() {
+    const loader = document.getElementById("nyz-loader");
+    const msgEl  = document.getElementById("nyz-msg");
+    const subEl  = document.getElementById("nyz-sub");
+    if (!loader) return;
+    const [msg, sub] = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+    if (msgEl) msgEl.textContent = msg;
+    if (subEl) subEl.textContent = sub;
+    loader.classList.add("active");
+  }
+
+  function hideLoader() {
+    const loader = document.getElementById("nyz-loader");
+    if (loader) loader.classList.remove("active");
+  }
+
+  // Hide once Streamlit finishes rendering
+  function watchForRenderComplete() {
+    hideLoader();
+    // Re-observe for next interaction
+    const observer = new MutationObserver(function(mutations) {
+      // Streamlit updates stMarkdownContainer when render is complete
+      const hasContent = mutations.some(m =>
+        m.target && m.target.closest &&
+        (m.target.closest('[data-testid="stMain"]') ||
+         m.target.closest('[data-testid="block-container"]'))
+      );
+      if (hasContent) {
+        hideLoader();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return observer;
+  }
+
+  // Show on sidebar radio click (page navigation)
+  function attachSidebarListeners() {
+    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+    if (!sidebar) return false;
+
+    // Radio buttons (page navigation)
+    sidebar.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+      radio.addEventListener("change", function() {
+        showLoader();
+        // Safety timeout — hide after 8s no matter what
+        setTimeout(hideLoader, 8000);
+      });
+    });
+
+    // Buttons in sidebar (logout etc)
+    sidebar.querySelectorAll("button").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        if (btn.textContent.includes("Logout")) return; // no loader for logout
+        showLoader();
+        setTimeout(hideLoader, 8000);
+      });
+    });
+    return true;
+  }
+
+  // Poll until sidebar is ready
+  let attempts = 0;
+  const interval = setInterval(function() {
+    attempts++;
+    if (attachSidebarListeners() || attempts > 40) {
+      clearInterval(interval);
+    }
+    // Re-attach on Streamlit rerenders
+    if (attempts > 0 && attempts % 10 === 0) {
+      attachSidebarListeners();
+    }
+  }, 250);
+
+  // Watch for render complete
+  watchForRenderComplete();
+
+  // Re-attach listeners when Streamlit re-renders sidebar
+  const sidebarObserver = new MutationObserver(function() {
+    attachSidebarListeners();
+  });
+  const tryObserveSidebar = setInterval(function() {
+    const s = document.querySelector('[data-testid="stSidebar"]');
+    if (s) {
+      sidebarObserver.observe(s, { childList: true, subtree: true });
+      clearInterval(tryObserveSidebar);
+    }
+  }, 300);
+
+})();
+</script>
+''', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
 # DATABASE — Supabase PostgreSQL (hardcoded — persistent across restarts)
