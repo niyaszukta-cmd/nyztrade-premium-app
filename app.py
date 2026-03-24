@@ -385,10 +385,11 @@ def _exec(conn, sql: str, params=None):
             cur.execute(sql)
         return cur
     else:
+        # SQLite — call conn.execute directly (NOT _exec to avoid recursion)
         if params is not None:
-            return _exec(conn, sql, params)
+            return conn.execute(sql, params)
         else:
-            return _exec(conn, sql)
+            return conn.execute(sql)
 
 
 def _fetchall(cur_or_result) -> list:
@@ -614,10 +615,10 @@ def _load_session():
             # Restore member (re-verify from DB to ensure still active)
             if not st.session_state.get("member") and data.get("member_username"):
                 conn = get_conn()
-                row = _exec(conn, 
+                row = _fetchone(_exec(conn, 
                     "SELECT * FROM clients WHERE username=? AND status='Active'",
                     (data["member_username"],)
-                ).fetchone()
+                ))
                 conn.close()
                 if row:
                     st.session_state["member"] = dict(row)
@@ -1749,7 +1750,7 @@ def admin_research():
                 return _fetchall(_exec(conn, q, params))
             except Exception:
                 try:
-                    return _exec(conn, "SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, created_at, 0 as has_pdf FROM research_reports ORDER BY created_at DESC").fetchall()
+                    return _fetchall(_exec(conn, "SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, created_at, 0 as has_pdf FROM research_reports ORDER BY created_at DESC"))
                 except Exception:
                     return []
         rows = _admin_fetch_reports(conn, broker_f, cat_f, call_f)
@@ -1764,7 +1765,7 @@ def admin_research():
                         st.session_state[f"show_pdf_{r['id']}"] = not st.session_state.get(f"show_pdf_{r['id']}", False)
                     if st.session_state.get(f"show_pdf_{r['id']}"):
                         conn2 = get_conn()
-                        pdf_row = _exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                        pdf_row = _fetchone(_exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)))
                         conn2.close()
                         if pdf_row and pdf_row['pdf_data']:
                             render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
@@ -1857,14 +1858,16 @@ def admin_dashboard():
     st.markdown('<div class="section-sub">Live overview — all activity at a glance</div>', unsafe_allow_html=True)
     conn = get_conn()
     cols = st.columns(6)
+    def _count(conn, sql):
+        row = _fetchone(_exec(conn, sql))
+        return list(row.values())[0] if row else 0
     metrics = [
-        (_exec(conn, "SELECT COUNT(*) FROM clients WHERE status='Active'").fetchone()[0], "Active Members","#00ddff"),
-        (_exec(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0],  "Equity Open",  "#00ffb4"),
-        (_exec(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0], "Options Open", "#7b61ff"),
-        (_exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0],                  "Reports",      "#ffd700"),
-        (_exec(conn, "SELECT COUNT(*) FROM broker_calls WHERE status='Active'").fetchone()[0],"Broker Calls", "#c084fc"),
-        (_exec(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<=? AND status='Active'",
-                      (str(date.today() + timedelta(days=7)),)).fetchone()[0], "Expiring 7d","#ff6b6b"),
+        (_count(conn, "SELECT COUNT(*) FROM clients WHERE status='Active'"), "Active Members","#00ddff"),
+        (_count(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'"),  "Equity Open",  "#00ffb4"),
+        (_count(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'"), "Options Open", "#7b61ff"),
+        (_count(conn, "SELECT COUNT(*) FROM research_reports"),                  "Reports",      "#ffd700"),
+        (_count(conn, "SELECT COUNT(*) FROM broker_calls WHERE status='Active'"),"Broker Calls", "#c084fc"),
+        (_count(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<='" + str(date.today() + timedelta(days=7)) + "' AND status='Active'"), "Expiring 7d","#ff6b6b"),
     ]
     for col, (val, label, color) in zip(cols, metrics):
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
@@ -2178,7 +2181,7 @@ def admin_updates():
         conn=get_conn()
         cat_f=st.selectbox("Filter",["All","Pre-Market","Intraday","Post-Market","GEX Update","Market View","Education"])
         q="SELECT * FROM daily_updates"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC"
-        rows=_exec(conn, q,(cat_f,) if cat_f!="All" else ()).fetchall(); conn.close()
+        rows=_fetchall(_exec(conn, q,(cat_f,) if cat_f!="All" else ())); conn.close()
         for r in rows:
             with st.expander(f"[{r['category']}] {r['title']} — {r['posted_date']}"):
                 st.markdown(r['content'])
@@ -2228,7 +2231,7 @@ def admin_videos():
     with tab2:
         conn = get_conn()
         cat_f = st.selectbox("Filter",["All","GEX Education","Options Strategy","Equity Analysis","Market Overview","Live Session"])
-        rows  = _exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
+        rows  = _fetchall(_exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()))
         conn.close()
         for r in rows:
             with st.expander(f"[{r['category']}] {r['title']} — {r['posted_date']}"):
@@ -2279,7 +2282,7 @@ def admin_clients():
                     finally: conn.close()
     with tab2:
         conn=get_conn(); search=st.text_input("🔍 Search"); s=f"%{search}%"
-        rows=_exec(conn, "SELECT * FROM clients WHERE name LIKE ? OR username LIKE ? ORDER BY created_at DESC",(s,s)).fetchall() if search else _fetchall(_exec(conn, "SELECT * FROM clients ORDER BY created_at DESC")); conn.close()
+        rows=_fetchall(_exec(conn, "SELECT * FROM clients WHERE name LIKE ? OR username LIKE ? ORDER BY created_at DESC",(s,s))) if search else _fetchall(_exec(conn, "SELECT * FROM clients ORDER BY created_at DESC")); conn.close()
         m1,m2,m3,m4=st.columns(4); m1.metric("Total",len(rows)); m2.metric("Active",sum(1 for r in rows if r['status']=='Active')); m3.metric("Trial",sum(1 for r in rows if r['status']=='Trial')); m4.metric("Inactive",sum(1 for r in rows if r['status']=='Inactive'))
         for r in rows:
             exp=date.fromisoformat(r['expiry_date']) if r['expiry_date'] else None; dl=(exp-date.today()).days if exp else None
@@ -2320,7 +2323,7 @@ def admin_clients():
                         _exec(conn2, "INSERT INTO payments (client_id,amount,plan,status,payment_method,notes,payment_date) VALUES(?,?,?,?,?,?,?)",(cid,amount,plan,'captured',method,pnotes,str(pd_)))
                         if extend:
                             days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Trial":7}
-                            row=_exec(conn2, "SELECT expiry_date FROM clients WHERE id=?",(cid,)).fetchone()
+                            row=_fetchone(_exec(conn2, "SELECT expiry_date FROM clients WHERE id=?",(cid,)))
                             try:
                                 base=date.fromisoformat(row['expiry_date']) if row['expiry_date'] else date.today()
                                 if base<date.today(): base=date.today()
@@ -2338,7 +2341,7 @@ def admin_clients():
                 for p in pays:
                     st.markdown(f'<div class="call-card"><b style="color:#fff">{p["name"] or "Unknown"}</b> <span style="color:#445566">@{p["username"] or "—"}</span><span style="color:#00ffb4;float:right;font-weight:800;font-size:20px">₹{p["amount"]:,.0f}</span><br><span style="color:#99aabb;font-size:13px">{p["plan"]} | {p["payment_method"] or "—"} | {p["notes"] or "—"} | {p["payment_date"] or "—"}</span></div>',unsafe_allow_html=True)
     with tab4:
-        conn=get_conn(); rows=_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date").fetchall(); conn.close()
+        conn=get_conn(); rows=_fetchall(_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date")); conn.close()
         if not rows: st.success("✅ No renewals due in 7 days.")
         else:
             st.warning(f"⚠️ {len(rows)} member(s) expiring soon!")
@@ -2458,7 +2461,7 @@ def member_research(member):
                         if st.session_state.get(view_key, False):
                             st.markdown('<div style="margin-top:8px;font-size:11px;color:#3b2d55;letter-spacing:1px">🔒 PDF is displayed in secure viewer · Saving or downloading is not permitted</div>', unsafe_allow_html=True)
                             conn2 = get_conn()
-                            pdf_row = _exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                            pdf_row = _fetchone(_exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)))
                             conn2.close()
                             if pdf_row and pdf_row['pdf_data']:
                                 render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
@@ -2607,16 +2610,16 @@ def equity_home(member):
     st.markdown('<div class="section-sub">Equity Premium Dashboard</div>', unsafe_allow_html=True)
     conn = get_conn()
     c1,c2,c3,c4 = st.columns(4)
-    open_eq = _exec(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0]
+    open_eq = (lambda r: list(r.values())[0] if r else 0)(_fetchone(_exec(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'")))
     eq_c    = _fetchall(_exec(conn, "SELECT pnl_pct FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL"))
     eq_wr   = f"{sum(1 for r in eq_c if r[0]>0)/len(eq_c)*100:.0f}%" if eq_c else "—"
     avg_pnl = f"{sum(r[0] for r in eq_c)/len(eq_c):+.1f}%" if eq_c else "—"
-    reps    = _exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0]
+    reps    = (lambda r: list(r.values())[0] if r else 0)(_fetchone(_exec(conn, "SELECT COUNT(*) FROM research_reports")))
     for col,val,label,color in [(c1,open_eq,"Equity Open","#00ffb4"),(c2,eq_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("#### 📢 Today's Updates")
-    updates = _exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
+    updates = _fetchall(_exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)))
     if updates:
         for u in updates:
             st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
@@ -2672,16 +2675,16 @@ def options_home(member):
     st.markdown('<div class="section-sub">Options & GEX Premium Dashboard</div>', unsafe_allow_html=True)
     conn = get_conn()
     c1,c2,c3,c4 = st.columns(4)
-    open_op = _exec(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0]
+    open_op = (lambda r: list(r.values())[0] if r else 0)(_fetchone(_exec(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'")))
     op_c    = _fetchall(_exec(conn, "SELECT pnl_pct FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL"))
     op_wr   = f"{sum(1 for r in op_c if r[0]>0)/len(op_c)*100:.0f}%" if op_c else "—"
     avg_pnl = f"{sum(r[0] for r in op_c)/len(op_c):+.1f}%" if op_c else "—"
-    reps    = _exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0]
+    reps    = (lambda r: list(r.values())[0] if r else 0)(_fetchone(_exec(conn, "SELECT COUNT(*) FROM research_reports")))
     for col,val,label,color in [(c1,open_op,"Options Open","#7b61ff"),(c2,op_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("#### 📢 Today's Updates")
-    updates = _exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
+    updates = _fetchall(_exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)))
     if updates:
         for u in updates:
             st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
@@ -2776,7 +2779,7 @@ def member_videos(member):
     st.markdown('<div class="section-sub">Premium educational videos — embedded, view-only</div>', unsafe_allow_html=True)
     conn = get_conn()
     cat_f = st.selectbox("Browse by Category",["All","GEX Education","Options Strategy","Equity Analysis","Market Overview","ESG/Valuation","Live Session","Other"])
-    rows  = _exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
+    rows  = _fetchall(_exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()))
     conn.close()
     if not rows: st.info("No videos in this category yet."); return
 
