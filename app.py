@@ -290,15 +290,122 @@ st.markdown('''<meta name="viewport" content="width=device-width, initial-scale=
 <meta name="theme-color" content="#08070f">''', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
-# DATABASE
+# DATABASE — Supabase PostgreSQL (primary) with SQLite local fallback
 # ══════════════════════════════════════════════════════════════════════
+#
+# Set in Streamlit Secrets:
+#   DATABASE_URL = "postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres"
+#
+# If DATABASE_URL is absent, falls back to local SQLite (dev only — data
+# WILL be lost on Streamlit Cloud restarts without this secret).
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nyztrade.db")
+_USE_PG = False   # resolved at startup below
+
+def _get_db_url() -> str:
+    """Retrieve DATABASE_URL from secrets or environment."""
+    for k in ("DATABASE_URL", "database_url", "SUPABASE_DB_URL"):
+        try:
+            v = st.secrets[k]
+            if v and str(v).strip(): return str(v).strip()
+        except Exception:
+            pass
+    try:
+        for k in ("DATABASE_URL", "database_url", "SUPABASE_DB_URL"):
+            v = st.secrets.get(k)
+            if v and str(v).strip(): return str(v).strip()
+    except Exception:
+        pass
+    return os.environ.get("DATABASE_URL", "")
+
+_DB_URL = _get_db_url()
+if _DB_URL:
+    try:
+        import psycopg2
+        import psycopg2.extras
+        _USE_PG = True
+    except ImportError:
+        _USE_PG = False
+
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """
+    Return an open DB connection.
+    PostgreSQL (psycopg2) if DATABASE_URL is set and psycopg2 is installed,
+    otherwise SQLite.  Both return dict-like rows via row_factory / RealDictCursor.
+    """
+    if _USE_PG:
+        import psycopg2, psycopg2.extras
+        conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn.autocommit = False
+        return conn
+    else:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+
+def _sql(raw: str) -> str:
+    """
+    Convert SQLite SQL to PostgreSQL SQL when running in PG mode.
+    Handles the most common differences automatically.
+    """
+    if not _USE_PG:
+        return raw
+    import re
+    s = raw
+    # Placeholders: ? -> %s
+    s = re.sub(r"(?<![%'])\?", "%s", s)
+    # Primary key: INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+    s = re.sub(r"INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY", s, flags=re.IGNORECASE)
+    # AUTOINCREMENT alone
+    s = re.sub(r"AUTOINCREMENT", "", s, flags=re.IGNORECASE)
+    # date('now') -> CURRENT_DATE
+    s = re.sub(r"date\('now'\)", "CURRENT_DATE", s, flags=re.IGNORECASE)
+    # date('now','-N days') -> CURRENT_DATE - INTERVAL 'N days'
+    s = re.sub(r"date\('now',\s*'-(\d+)\s*days?'\)", r"(CURRENT_DATE - INTERVAL ' days')", s, flags=re.IGNORECASE)
+    # datetime('now') -> NOW()
+    s = re.sub(r"datetime\('now'\)", "NOW()", s, flags=re.IGNORECASE)
+    # BLOB -> BYTEA
+    s = re.sub(r"BLOB", "BYTEA", s, flags=re.IGNORECASE)
+    # CREATE TABLE IF NOT EXISTS — PG supports this natively, no change needed
+    # TEXT DEFAULT ... — compatible
+    # COALESCE — compatible
+    return s
+
+
+def _exec(conn, sql: str, params=None):
+    """Execute SQL via conn, auto-converting syntax for PG vs SQLite."""
+    sql = _sql(sql)
+    if _USE_PG:
+        cur = conn.cursor()
+        if params is not None:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return cur
+    else:
+        if params is not None:
+            return _exec(conn, sql, params)
+        else:
+            return _exec(conn, sql)
+
+
+def _fetchall(cur_or_result) -> list:
+    """Fetch all rows as list of dicts regardless of backend."""
+    rows = cur_or_result.fetchall()
+    if _USE_PG:
+        return [dict(r) for r in rows]
+    else:
+        return [dict(r) for r in rows]
+
+
+def _fetchone(cur_or_result):
+    """Fetch one row as dict regardless of backend."""
+    row = cur_or_result.fetchone()
+    if row is None:
+        return None
+    return dict(row)
 
 
 def _migrate_db(conn):
@@ -334,35 +441,45 @@ def _migrate_db(conn):
     ]
     for sql in add_cols:
         try:
-            conn.execute(sql)
+            _exec(conn, sql)
+            if _USE_PG: conn.commit()
         except Exception:
-            pass
+            if _USE_PG:
+                try: conn.rollback()
+                except: pass
 
     # Step 2: Verify pdf_data column is actually queryable.
-    # If CASE WHEN pdf_data fails, the table is corrupt — nuke and recreate.
     try:
-        conn.execute("SELECT CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END FROM research_reports LIMIT 1")
+        _exec(conn, "SELECT CASE WHEN pdf_data IS NOT NULL THEN 1 ELSE 0 END FROM research_reports LIMIT 1")
     except Exception:
-        # Drop the old incompatible table — old parsed-text rows have no PDFs
         try:
-            conn.execute("DROP TABLE IF EXISTS research_reports")
+            _exec(conn, "DROP TABLE IF EXISTS research_reports")
+            if _USE_PG: conn.commit()
         except Exception:
-            pass
+            if _USE_PG:
+                try: conn.rollback()
+                except: pass
 
     # Step 3: Fix NULL visible_to values in existing rows
     try:
-        conn.execute("UPDATE research_reports SET visible_to='all' WHERE visible_to IS NULL")
+        _exec(conn, "UPDATE research_reports SET visible_to='all' WHERE visible_to IS NULL")
+        if _USE_PG: conn.commit()
     except Exception:
         pass
 
-    conn.commit()
+    try:
+        conn.commit()
+    except Exception:
+        pass
 
 
 def init_db():
-    conn = get_conn(); c = conn.cursor()
+    conn = get_conn()
     # Run migrations first so old DBs get upgraded before we touch them
     _migrate_db(conn)
-    c.execute("""CREATE TABLE IF NOT EXISTS clients (
+    def _ct(sql):
+        _exec(conn, sql)
+    _ct("""CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
         username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
         discord_id TEXT, telegram_id TEXT, email TEXT, phone TEXT,
@@ -370,21 +487,21 @@ def init_db():
         joined_date TEXT, expiry_date TEXT, notes TEXT,
         reminder_sent INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS payments (
+    _ct("""CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER,
         amount REAL, currency TEXT DEFAULT 'INR',
         plan TEXT, status TEXT DEFAULT 'captured', payment_method TEXT,
         notes TEXT, payment_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(client_id) REFERENCES clients(id))""")
-    c.execute("""CREATE TABLE IF NOT EXISTS equity_calls (
+    _ct("""CREATE TABLE IF NOT EXISTS equity_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
         call_type TEXT NOT NULL, entry_price REAL, target1 REAL,
         target2 REAL, stop_loss REAL, cmp REAL, status TEXT DEFAULT 'Open',
         rationale TEXT, result TEXT, exit_price REAL, pnl_pct REAL,
         posted_date TEXT, exit_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS options_calls (
+    _ct("""CREATE TABLE IF NOT EXISTS options_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT, underlying TEXT NOT NULL,
         option_type TEXT, strike REAL, expiry TEXT, call_type TEXT,
         entry_premium REAL, target_premium REAL, stop_premium REAL,
@@ -392,19 +509,19 @@ def init_db():
         gex_note TEXT, exit_premium REAL, pnl_pct REAL, result TEXT,
         posted_date TEXT, exit_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS daily_updates (
+    _ct("""CREATE TABLE IF NOT EXISTS daily_updates (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
         category TEXT, content TEXT, video_url TEXT,
         tags TEXT, posted_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS videos (
+    _ct("""CREATE TABLE IF NOT EXISTS videos (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
         category TEXT, description TEXT,
         embed_code TEXT,
         duration TEXT, posted_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    # Research reports — PDF stored as BLOB, rendered inline (no download)
-    c.execute("""CREATE TABLE IF NOT EXISTS research_reports (
+    # Research reports — PDF stored as BYTEA/BLOB, rendered inline (no download)
+    _ct("""CREATE TABLE IF NOT EXISTS research_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         broker_house TEXT,
@@ -424,7 +541,7 @@ def init_db():
         pdf_filename TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
     # Broker buy/sell calls (structured table)
-    c.execute("""CREATE TABLE IF NOT EXISTS broker_calls (
+    _ct("""CREATE TABLE IF NOT EXISTS broker_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         broker_house TEXT NOT NULL,
         symbol TEXT NOT NULL,
@@ -440,17 +557,19 @@ def init_db():
         status TEXT DEFAULT 'Active',
         call_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    conn.commit()
+    if _USE_PG: conn.commit()
+    else: conn.commit()
     conn.close()
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def verify_member(username, password):
     conn = get_conn()
-    row  = conn.execute(
+    cur  = _exec(conn,
         "SELECT * FROM clients WHERE username=? AND password_hash=? AND status='Active'",
         (username, hash_password(password))
-    ).fetchone()
+    )
+    row = _fetchone(cur)
     conn.close()
     return row
 
@@ -461,6 +580,9 @@ def member_has_access(member, portal_type):
     return portal_type in allowed
 
 init_db()
+
+# Show DB status in sidebar after load (admin only — shown in admin dashboard)
+_DB_STATUS = "🟢 Supabase PostgreSQL (persistent)" if _USE_PG else "🟡 SQLite local (ephemeral — add DATABASE_URL to Secrets)"
 
 # ══════════════════════════════════════════════════════════════════════
 # SESSION PERSISTENCE  (JSON file — survives Streamlit reruns)
@@ -492,7 +614,7 @@ def _load_session():
             # Restore member (re-verify from DB to ensure still active)
             if not st.session_state.get("member") and data.get("member_username"):
                 conn = get_conn()
-                row = conn.execute(
+                row = _exec(conn, 
                     "SELECT * FROM clients WHERE username=? AND status='Active'",
                     (data["member_username"],)
                 ).fetchone()
@@ -1577,7 +1699,7 @@ def admin_research():
                         full_notes = "\n\n".join(full_notes_parts)
 
                         conn = get_conn()
-                        conn.execute("""INSERT INTO research_reports
+                        _exec(conn, """INSERT INTO research_reports
                             (title, broker_house, category, symbol, call_type,
                              target_price, current_price, upside_pct, analyst,
                              report_date, sector, tags, notes, visible_to,
@@ -1624,10 +1746,10 @@ def admin_research():
                 if cat_f    != "All": q += " AND category=?";     params.append(cat_f)
                 if call_f   != "All": q += " AND call_type=?";    params.append(call_f)
                 q += " ORDER BY created_at DESC"
-                return conn.execute(q, params).fetchall()
+                return _fetchall(_exec(conn, q, params))
             except Exception:
                 try:
-                    return conn.execute("SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, created_at, 0 as has_pdf FROM research_reports ORDER BY created_at DESC").fetchall()
+                    return _exec(conn, "SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, created_at, 0 as has_pdf FROM research_reports ORDER BY created_at DESC").fetchall()
                 except Exception:
                     return []
         rows = _admin_fetch_reports(conn, broker_f, cat_f, call_f)
@@ -1642,7 +1764,7 @@ def admin_research():
                         st.session_state[f"show_pdf_{r['id']}"] = not st.session_state.get(f"show_pdf_{r['id']}", False)
                     if st.session_state.get(f"show_pdf_{r['id']}"):
                         conn2 = get_conn()
-                        pdf_row = conn2.execute("SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                        pdf_row = _exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
                         conn2.close()
                         if pdf_row and pdf_row['pdf_data']:
                             render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
@@ -1654,7 +1776,7 @@ def admin_research():
                 del_col1.markdown('<div style="font-size:11px;color:#445566;padding-top:8px">⚠️ Deleting a report removes its PDF permanently.</div>', unsafe_allow_html=True)
                 if del_col2.button("🗑️ Delete Report", key=f"dr_{r['id']}", use_container_width=True):
                     conn2 = get_conn()
-                    conn2.execute("DELETE FROM research_reports WHERE id=?", (r['id'],))
+                    _exec(conn2, "DELETE FROM research_reports WHERE id=?", (r['id'],))
                     conn2.commit(); conn2.close(); st.rerun()
 
     with tab3:
@@ -1686,7 +1808,7 @@ def admin_research():
                         st.error("Broker, symbol, and call type required.")
                     else:
                         conn = get_conn()
-                        conn.execute("""INSERT INTO broker_calls
+                        _exec(conn, """INSERT INTO broker_calls
                             (broker_house,symbol,call_type,target_price,stop_loss,entry_price,
                              current_price,upside_pct,timeframe,rationale,analyst,status,call_date)
                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -1708,7 +1830,7 @@ def admin_research():
             if bc_ct_f     != "All": q2 += " AND call_type=?";    p2.append(bc_ct_f)
             q2 += " ORDER BY created_at DESC"
             try:
-                bc_rows = conn.execute(q2, p2).fetchall()
+                bc_rows = _fetchall(_exec(conn, q2, p2))
             except Exception:
                 bc_rows = []
             conn.close()
@@ -1718,11 +1840,11 @@ def admin_research():
                 new_st = bc1a.selectbox("Update Status", ["Active","Target Hit","Stop Hit","Closed"], key=f"bcs_{r['id']}")
                 if bc2a.button("✅ Update Status", key=f"bcu_{r['id']}", use_container_width=True):
                     conn2 = get_conn()
-                    conn2.execute("UPDATE broker_calls SET status=? WHERE id=?", (new_st, r['id']))
+                    _exec(conn2, "UPDATE broker_calls SET status=? WHERE id=?", (new_st, r['id']))
                     conn2.commit(); conn2.close(); st.rerun()
                 if bc2b.button("🗑️", key=f"bcd_{r['id']}", help="Delete this broker call", use_container_width=True):
                     conn2 = get_conn()
-                    conn2.execute("DELETE FROM broker_calls WHERE id=?", (r['id'],))
+                    _exec(conn2, "DELETE FROM broker_calls WHERE id=?", (r['id'],))
                     conn2.commit(); conn2.close(); st.rerun()
                 st.markdown("<hr style='border-color:#1a1030;margin:4px 0 8px'>", unsafe_allow_html=True)
 
@@ -1736,12 +1858,12 @@ def admin_dashboard():
     conn = get_conn()
     cols = st.columns(6)
     metrics = [
-        (conn.execute("SELECT COUNT(*) FROM clients WHERE status='Active'").fetchone()[0], "Active Members","#00ddff"),
-        (conn.execute("SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0],  "Equity Open",  "#00ffb4"),
-        (conn.execute("SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0], "Options Open", "#7b61ff"),
-        (conn.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0],                  "Reports",      "#ffd700"),
-        (conn.execute("SELECT COUNT(*) FROM broker_calls WHERE status='Active'").fetchone()[0],"Broker Calls", "#c084fc"),
-        (conn.execute("SELECT COUNT(*) FROM clients WHERE expiry_date<=? AND status='Active'",
+        (_exec(conn, "SELECT COUNT(*) FROM clients WHERE status='Active'").fetchone()[0], "Active Members","#00ddff"),
+        (_exec(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0],  "Equity Open",  "#00ffb4"),
+        (_exec(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0], "Options Open", "#7b61ff"),
+        (_exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0],                  "Reports",      "#ffd700"),
+        (_exec(conn, "SELECT COUNT(*) FROM broker_calls WHERE status='Active'").fetchone()[0],"Broker Calls", "#c084fc"),
+        (_exec(conn, "SELECT COUNT(*) FROM clients WHERE expiry_date<=? AND status='Active'",
                       (str(date.today() + timedelta(days=7)),)).fetchone()[0], "Expiring 7d","#ff6b6b"),
     ]
     for col, (val, label, color) in zip(cols, metrics):
@@ -1750,7 +1872,7 @@ def admin_dashboard():
     pc1, pc2 = st.columns(2)
     for col, table, label in [(pc1,"equity_calls","Equity"),(pc2,"options_calls","Options")]:
         with col:
-            rows = conn.execute(f"SELECT pnl_pct FROM {table} WHERE status='Closed' AND pnl_pct IS NOT NULL").fetchall()
+            rows = _fetchall(_exec(conn, f"SELECT pnl_pct FROM {table} WHERE status='Closed' AND pnl_pct IS NOT NULL"))
             if rows:
                 pnls = [r[0] for r in rows]; wins = sum(1 for p in pnls if p > 0)
                 col.markdown(f"""<div class="sub-card">
@@ -1765,12 +1887,12 @@ def admin_dashboard():
     left, right = st.columns(2)
     with left:
         st.markdown("#### Latest Equity")
-        for r in conn.execute("SELECT * FROM equity_calls ORDER BY created_at DESC LIMIT 4").fetchall():
+        for r in _fetchall(_exec(conn, "SELECT * FROM equity_calls ORDER BY created_at DESC LIMIT 4")):
             pnl = f" | <span class='{'pnl-pos' if (r['pnl_pct'] or 0)>0 else 'pnl-neg'}'>{r['pnl_pct']:+.1f}%</span>" if r['pnl_pct'] else ""
             st.markdown(f'<div class="call-card {r["call_type"].lower()}"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span class="badge badge-{r["status"].lower()}">{r["status"]}</span><span style="float:right;font-size:12px;color:#445566">{r["posted_date"] or ""}</span><br><span style="color:#99aabb;font-size:13px">Entry ₹{r["entry_price"]} | SL ₹{r["stop_loss"]}{pnl}</span></div>', unsafe_allow_html=True)
     with right:
         st.markdown("#### Latest Broker Calls")
-        for r in conn.execute("SELECT * FROM broker_calls ORDER BY created_at DESC LIMIT 4").fetchall():
+        for r in _fetchall(_exec(conn, "SELECT * FROM broker_calls ORDER BY created_at DESC LIMIT 4")):
             render_broker_call_card(dict(r))
     conn.close()
 
@@ -1805,7 +1927,7 @@ def admin_equity():
                                 target2=target2 or None, stop_loss=stop_loss,
                                 cmp=cmp, rationale=rationale, posted_date=str(posted_date))
                     conn = get_conn()
-                    conn.execute("INSERT INTO equity_calls (symbol,call_type,entry_price,target1,target2,stop_loss,cmp,rationale,posted_date,status) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    _exec(conn, "INSERT INTO equity_calls (symbol,call_type,entry_price,target1,target2,stop_loss,cmp,rationale,posted_date,status) VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (call["symbol"],call["call_type"],call["entry_price"],call["target1"],
                          call["target2"],call["stop_loss"],call["cmp"],call["rationale"],call["posted_date"],"Open"))
                     conn.commit(); conn.close()
@@ -1815,7 +1937,7 @@ def admin_equity():
                     st.success(f"✅ {symbol.upper()} posted" + (" | "+" | ".join(msgs) if msgs else ""))
     with tab2:
         conn = get_conn()
-        for r in conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall():
+        for r in _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC")):
             with st.expander(f"{'🟢' if r['call_type']=='BUY' else '🔴'} {r['symbol']} — ₹{r['entry_price']} | {r['posted_date']}"):
                 c1,c2,c3,c4 = st.columns(4)
                 c1.metric("Entry",f"₹{r['entry_price']}"); c2.metric("Target 1",f"₹{r['target1']}")
@@ -1826,15 +1948,15 @@ def admin_equity():
                 result = ec2.selectbox("Result", ["Target Hit","Stop Hit","Partial","Manual"], key=f"res{r['id']}")
                 if ec3.button("✅ Close", key=f"cl{r['id']}"):
                     pnl = round(((exit_p-r['entry_price'])/r['entry_price']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_price'] else 0
-                    conn.execute("UPDATE equity_calls SET status='Closed',exit_price=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
+                    _exec(conn, "UPDATE equity_calls SET status='Closed',exit_price=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
                 if ec4.button("🗑️ Delete", key=f"eq_del{r['id']}"):
-                    conn.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                    _exec(conn, "DELETE FROM equity_calls WHERE id=?", (r['id'],))
                     conn.commit(); st.rerun()
         conn.close()
     with tab3:
         conn = get_conn()
-        rows = conn.execute("SELECT * FROM equity_calls WHERE status='Closed' ORDER BY exit_date DESC").fetchall()
+        rows = _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Closed' ORDER BY exit_date DESC"))
         if not rows: st.info("No closed calls yet.")
         else:
             pnls = [r['pnl_pct'] for r in rows if r['pnl_pct'] is not None]
@@ -1850,7 +1972,7 @@ def admin_equity():
                     st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["symbol"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_price"]} → ₹{r["exit_price"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>', unsafe_allow_html=True)
                 with col_del:
                     if st.button("🗑️", key=f"eq_hdel{r['id']}", help="Delete this call"):
-                        conn.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                        _exec(conn, "DELETE FROM equity_calls WHERE id=?", (r['id'],))
                         conn.commit(); st.rerun()
         conn.close()
     with tab4:
@@ -1864,7 +1986,7 @@ def admin_equity():
         if sym_search.strip(): q_mgmt += " AND symbol LIKE ?"; p_mgmt.append(f"%{sym_search.upper().strip()}%")
         if status_f != "All":  q_mgmt += " AND status=?";     p_mgmt.append(status_f)
         q_mgmt += " ORDER BY created_at DESC"
-        all_eq = conn.execute(q_mgmt, p_mgmt).fetchall()
+        all_eq = _fetchall(_exec(conn, q_mgmt, p_mgmt))
         conn.close()
         if not all_eq:
             st.info("No calls found.")
@@ -1886,7 +2008,7 @@ def admin_equity():
                     if r['status'] == 'Closed':
                         if act1.button("↩️ Reopen", key=f"eq_reopen{r['id']}", use_container_width=True):
                             conn2 = get_conn()
-                            conn2.execute("UPDATE equity_calls SET status='Open',exit_price=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
+                            _exec(conn2, "UPDATE equity_calls SET status='Open',exit_price=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
                             conn2.commit(); conn2.close(); st.success("Reopened!"); st.rerun()
                     else:
                         act1.markdown("")
@@ -1894,12 +2016,12 @@ def admin_equity():
                     new_pnl = act2.number_input("Correct P&L %", value=float(r['pnl_pct'] or 0), step=0.1, key=f"eq_pnl{r['id']}", format="%.2f")
                     if act2.button("💾 Save P&L", key=f"eq_savepnl{r['id']}", use_container_width=True):
                         conn2 = get_conn()
-                        conn2.execute("UPDATE equity_calls SET pnl_pct=? WHERE id=?", (new_pnl, r['id']))
+                        _exec(conn2, "UPDATE equity_calls SET pnl_pct=? WHERE id=?", (new_pnl, r['id']))
                         conn2.commit(); conn2.close(); st.success("P&L updated!"); st.rerun()
                     # Delete permanently
                     if act3.button("🗑️ Delete Permanently", key=f"eq_permadel{r['id']}", use_container_width=True):
                         conn2 = get_conn()
-                        conn2.execute("DELETE FROM equity_calls WHERE id=?", (r['id'],))
+                        _exec(conn2, "DELETE FROM equity_calls WHERE id=?", (r['id'],))
                         conn2.commit(); conn2.close(); st.rerun()
 
 
@@ -1933,7 +2055,7 @@ def admin_options():
                                 target_premium=target_premium,stop_premium=stop_premium,
                                 rationale=rationale,gex_note=gex_note,posted_date=str(posted_date))
                     conn = get_conn()
-                    conn.execute("INSERT INTO options_calls (underlying,option_type,strike,expiry,call_type,entry_premium,target_premium,stop_premium,cmp_premium,rationale,gex_note,posted_date,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    _exec(conn, "INSERT INTO options_calls (underlying,option_type,strike,expiry,call_type,entry_premium,target_premium,stop_premium,cmp_premium,rationale,gex_note,posted_date,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (underlying,option_type,strike,expiry,call_type,entry_premium,target_premium,stop_premium,cmp_premium,rationale,gex_note,str(posted_date),"Open"))
                     conn.commit(); conn.close()
                     msgs = []
@@ -1950,12 +2072,12 @@ def admin_options():
             outlook=st.text_area("Weekly GEX Outlook *",height=130); send_disc=st.checkbox("📤 Send to Discord",value=True)
             if st.form_submit_button("Post GEX Update →",use_container_width=True):
                 content=f"**GEX:** ₹{gex_level:,.0f} Cr | **Bias:** {gex_bias}\n**Gamma Wall:** {gamma_wall} | **Put Support:** {put_support} | **Zero:** {zero_line}\n\n{outlook}"
-                conn=get_conn(); conn.execute("INSERT INTO daily_updates (title,category,content,posted_date,tags) VALUES(?,?,?,?,?)",(f"GEX Weekly — {week_date}","GEX",content,str(week_date),"GEX,Options,Weekly")); conn.commit(); conn.close()
+                conn=get_conn(); _exec(conn, "INSERT INTO daily_updates (title,category,content,posted_date,tags) VALUES(?,?,?,?,?)",(f"GEX Weekly — {week_date}","GEX",content,str(week_date),"GEX,Options,Weekly")); conn.commit(); conn.close()
                 if send_disc: ok,_=discord_embed("options",f"📊 GEX Weekly — {week_date}",content,0x7B61FF)
                 st.success("✅ GEX update posted")
     with tab3:
         conn=get_conn()
-        for r in conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall():
+        for r in _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC")):
             with st.expander(f"{'⚡' if r['call_type']=='BUY' else '🔻'} {r['underlying']} {r['strike']} {r['option_type']} | {r['expiry']}"):
                 c1,c2,c3=st.columns(3); c1.metric("Entry",f"₹{r['entry_premium']}"); c2.metric("Target",f"₹{r['target_premium']}"); c3.metric("SL",f"₹{r['stop_premium']}")
                 if r['gex_note']: st.info(f"📊 GEX: {r['gex_note']}")
@@ -1964,15 +2086,15 @@ def admin_options():
                 result=ec2.selectbox("Result",["Target Hit","Stop Hit","Expiry","Manual"],key=f"op_res{r['id']}")
                 if ec3.button("✅ Close",key=f"op_cl{r['id']}"):
                     pnl=round(((exit_p-r['entry_premium'])/r['entry_premium']*100)*(1 if r['call_type']=='BUY' else -1),2) if exit_p and r['entry_premium'] else 0
-                    conn.execute("UPDATE options_calls SET status='Closed',exit_premium=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
+                    _exec(conn, "UPDATE options_calls SET status='Closed',exit_premium=?,result=?,pnl_pct=?,exit_date=date('now') WHERE id=?",(exit_p,result,pnl,r['id']))
                     conn.commit(); st.success(f"Closed | P&L: {pnl:+.2f}%"); st.rerun()
                 if ec4.button("🗑️ Delete",key=f"op_del{r['id']}"):
-                    conn.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                    _exec(conn, "DELETE FROM options_calls WHERE id=?", (r['id'],))
                     conn.commit(); st.rerun()
         conn.close()
     with tab4:
         conn=get_conn()
-        rows=conn.execute("SELECT * FROM options_calls WHERE status='Closed' ORDER BY exit_date DESC").fetchall()
+        rows=_fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Closed' ORDER BY exit_date DESC"))
         if not rows: st.info("No closed calls yet.")
         else:
             pnls=[r['pnl_pct'] for r in rows if r['pnl_pct'] is not None]
@@ -1987,7 +2109,7 @@ def admin_options():
                     st.markdown(f'<div class="call-card closed"><b style="color:#fff">{r["underlying"]} {r["strike"]} {r["option_type"]} | {r["expiry"]}</b><span class="badge badge-{r["call_type"].lower()}">{r["call_type"]}</span><span style="color:{pc};font-weight:700;float:right;font-size:18px">{pnl_str}</span><br><span style="color:#99aabb;font-size:13px">₹{r["entry_premium"]} → ₹{r["exit_premium"] or "—"} | {r["result"] or "—"} | {r["exit_date"] or "—"}</span></div>',unsafe_allow_html=True)
                 with col_del:
                     if st.button("🗑️", key=f"op_hdel{r['id']}", help="Delete this call"):
-                        conn.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                        _exec(conn, "DELETE FROM options_calls WHERE id=?", (r['id'],))
                         conn.commit(); st.rerun()
         conn.close()
     with tab5:
@@ -2001,7 +2123,7 @@ def admin_options():
         if und_search.strip(): q_mgmt2 += " AND underlying LIKE ?"; p_mgmt2.append(f"%{und_search.upper().strip()}%")
         if status_f2 != "All": q_mgmt2 += " AND status=?";          p_mgmt2.append(status_f2)
         q_mgmt2 += " ORDER BY created_at DESC"
-        all_op = conn.execute(q_mgmt2, p_mgmt2).fetchall()
+        all_op = _fetchall(_exec(conn, q_mgmt2, p_mgmt2))
         conn.close()
         if not all_op:
             st.info("No calls found.")
@@ -2020,18 +2142,18 @@ def admin_options():
                     if r['status'] == 'Closed':
                         if act1.button("↩️ Reopen", key=f"op_reopen{r['id']}", use_container_width=True):
                             conn2 = get_conn()
-                            conn2.execute("UPDATE options_calls SET status='Open',exit_premium=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
+                            _exec(conn2, "UPDATE options_calls SET status='Open',exit_premium=NULL,result=NULL,pnl_pct=NULL,exit_date=NULL WHERE id=?", (r['id'],))
                             conn2.commit(); conn2.close(); st.success("Reopened!"); st.rerun()
                     else:
                         act1.markdown("")
                     new_pnl2 = act2.number_input("Correct P&L %", value=float(r['pnl_pct'] or 0), step=0.1, key=f"op_pnl{r['id']}", format="%.2f")
                     if act2.button("💾 Save P&L", key=f"op_savepnl{r['id']}", use_container_width=True):
                         conn2 = get_conn()
-                        conn2.execute("UPDATE options_calls SET pnl_pct=? WHERE id=?", (new_pnl2, r['id']))
+                        _exec(conn2, "UPDATE options_calls SET pnl_pct=? WHERE id=?", (new_pnl2, r['id']))
                         conn2.commit(); conn2.close(); st.success("P&L updated!"); st.rerun()
                     if act3.button("🗑️ Delete Permanently", key=f"op_permadel{r['id']}", use_container_width=True):
                         conn2 = get_conn()
-                        conn2.execute("DELETE FROM options_calls WHERE id=?", (r['id'],))
+                        _exec(conn2, "DELETE FROM options_calls WHERE id=?", (r['id'],))
                         conn2.commit(); conn2.close(); st.rerun()
 
 
@@ -2049,20 +2171,20 @@ def admin_updates():
             if st.form_submit_button("Post Update →",use_container_width=True):
                 if not title or not content: st.error("Title and content required.")
                 else:
-                    conn=get_conn(); conn.execute("INSERT INTO daily_updates (title,category,content,video_url,tags,posted_date) VALUES(?,?,?,?,?,?)",(title,category,content,vid_url or None,tags,str(posted_date))); conn.commit(); conn.close()
+                    conn=get_conn(); _exec(conn, "INSERT INTO daily_updates (title,category,content,video_url,tags,posted_date) VALUES(?,?,?,?,?,?)",(title,category,content,vid_url or None,tags,str(posted_date))); conn.commit(); conn.close()
                     if send_disc: discord_embed("updates",f"📢 {title}",content,0x7B61FF)
                     st.success("✅ Update posted")
     with tab2:
         conn=get_conn()
         cat_f=st.selectbox("Filter",["All","Pre-Market","Intraday","Post-Market","GEX Update","Market View","Education"])
         q="SELECT * FROM daily_updates"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC"
-        rows=conn.execute(q,(cat_f,) if cat_f!="All" else ()).fetchall(); conn.close()
+        rows=_exec(conn, q,(cat_f,) if cat_f!="All" else ()).fetchall(); conn.close()
         for r in rows:
             with st.expander(f"[{r['category']}] {r['title']} — {r['posted_date']}"):
                 st.markdown(r['content'])
                 c1,c2=st.columns(2)
                 if c1.button("📤 Resend Discord",key=f"rs_{r['id']}"): discord_embed("updates",f"📢 {r['title']}",r['content'],0x7B61FF)
-                if c2.button("🗑️ Delete",key=f"dd_{r['id']}"): conn2=get_conn(); conn2.execute("DELETE FROM daily_updates WHERE id=?",(r['id'],)); conn2.commit(); conn2.close(); st.rerun()
+                if c2.button("🗑️ Delete",key=f"dd_{r['id']}"): conn2=get_conn(); _exec(conn2, "DELETE FROM daily_updates WHERE id=?",(r['id'],)); conn2.commit(); conn2.close(); st.rerun()
 
 
 def admin_videos():
@@ -2098,7 +2220,7 @@ def admin_videos():
                     st.error("Embed code must contain a valid <iframe> tag.")
                 else:
                     conn = get_conn()
-                    conn.execute("INSERT INTO videos (title,category,description,embed_code,duration,posted_date) VALUES(?,?,?,?,?,?)",
+                    _exec(conn, "INSERT INTO videos (title,category,description,embed_code,duration,posted_date) VALUES(?,?,?,?,?,?)",
                         (title, category, description, embed_code, duration, str(posted_date)))
                     conn.commit(); conn.close()
                     st.success(f"✅ '{title}' added.")
@@ -2106,7 +2228,7 @@ def admin_videos():
     with tab2:
         conn = get_conn()
         cat_f = st.selectbox("Filter",["All","GEX Education","Options Strategy","Equity Analysis","Market Overview","Live Session"])
-        rows  = conn.execute("SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
+        rows  = _exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
         conn.close()
         for r in rows:
             with st.expander(f"[{r['category']}] {r['title']} — {r['posted_date']}"):
@@ -2117,7 +2239,7 @@ def admin_videos():
                     safe = r['embed_code'].replace('width="560"','width="100%"').replace("width='560'","width='100%'")
                     st.markdown(f'<div class="video-embed-wrap">{safe}</div>', unsafe_allow_html=True)
                 if st.button("🗑️ Delete", key=f"dv_{r['id']}"):
-                    conn2 = get_conn(); conn2.execute("DELETE FROM videos WHERE id=?", (r['id'],)); conn2.commit(); conn2.close(); st.rerun()
+                    conn2 = get_conn(); _exec(conn2, "DELETE FROM videos WHERE id=?", (r['id'],)); conn2.commit(); conn2.close(); st.rerun()
 
 
 def admin_clients():
@@ -2143,7 +2265,7 @@ def admin_clients():
                 else:
                     conn=get_conn()
                     try:
-                        conn.execute("INSERT INTO clients (name,username,password_hash,discord_id,telegram_id,email,phone,plan,status,joined_date,expiry_date,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        _exec(conn, "INSERT INTO clients (name,username,password_hash,discord_id,telegram_id,email,phone,plan,status,joined_date,expiry_date,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                             (name,username.lower().strip(),hash_password(password),discord_id,telegram_id,email,phone,plan,status,str(joined),str(expiry),notes))
                         conn.commit()
                         # Show plan access
@@ -2157,7 +2279,7 @@ def admin_clients():
                     finally: conn.close()
     with tab2:
         conn=get_conn(); search=st.text_input("🔍 Search"); s=f"%{search}%"
-        rows=conn.execute("SELECT * FROM clients WHERE name LIKE ? OR username LIKE ? ORDER BY created_at DESC",(s,s)).fetchall() if search else conn.execute("SELECT * FROM clients ORDER BY created_at DESC").fetchall(); conn.close()
+        rows=_exec(conn, "SELECT * FROM clients WHERE name LIKE ? OR username LIKE ? ORDER BY created_at DESC",(s,s)).fetchall() if search else _fetchall(_exec(conn, "SELECT * FROM clients ORDER BY created_at DESC")); conn.close()
         m1,m2,m3,m4=st.columns(4); m1.metric("Total",len(rows)); m2.metric("Active",sum(1 for r in rows if r['status']=='Active')); m3.metric("Trial",sum(1 for r in rows if r['status']=='Trial')); m4.metric("Inactive",sum(1 for r in rows if r['status']=='Inactive'))
         for r in rows:
             exp=date.fromisoformat(r['expiry_date']) if r['expiry_date'] else None; dl=(exp-date.today()).days if exp else None
@@ -2173,17 +2295,17 @@ def admin_clients():
                     else: st.warning("No Telegram ID.")
                 with st.expander("🔑 Reset Password"):
                     np=st.text_input("New Password",type="password",key=f"pw_{r['id']}")
-                    if st.button("Reset",key=f"rst_{r['id']}"): conn2=get_conn(); conn2.execute("UPDATE clients SET password_hash=? WHERE id=?",(hash_password(np),r['id'])); conn2.commit(); conn2.close(); st.success("Reset.")
+                    if st.button("Reset",key=f"rst_{r['id']}"): conn2=get_conn(); _exec(conn2, "UPDATE clients SET password_hash=? WHERE id=?",(hash_password(np),r['id'])); conn2.commit(); conn2.close(); st.success("Reset.")
                 ec1,ec2,ec3,ec4=st.columns(4)
                 new_st=ec1.selectbox("Status",["Active","Inactive","Trial"],index=["Active","Inactive","Trial"].index(r['status']),key=f"st_{r['id']}")
                 ext_days=ec2.number_input("Extend (days)",0,365,key=f"ext_{r['id']}"); tg_new=ec3.text_input("Telegram ID",value=r['telegram_id'] or "",key=f"tgid_{r['id']}")
                 if ec4.button("Update",key=f"upd_{r['id']}"):
                     new_exp=r['expiry_date']
                     if ext_days>0 and exp: new_exp=str(exp+timedelta(days=int(ext_days)))
-                    conn2=get_conn(); conn2.execute("UPDATE clients SET status=?,expiry_date=?,telegram_id=? WHERE id=?",(new_st,new_exp,tg_new or None,r['id'])); conn2.commit(); conn2.close(); st.success("Updated!"); st.rerun()
-                if st.button("🗑️ Remove",key=f"del_{r['id']}"): conn2=get_conn(); conn2.execute("DELETE FROM clients WHERE id=?",(r['id'],)); conn2.commit(); conn2.close(); st.rerun()
+                    conn2=get_conn(); _exec(conn2, "UPDATE clients SET status=?,expiry_date=?,telegram_id=? WHERE id=?",(new_st,new_exp,tg_new or None,r['id'])); conn2.commit(); conn2.close(); st.success("Updated!"); st.rerun()
+                if st.button("🗑️ Remove",key=f"del_{r['id']}"): conn2=get_conn(); _exec(conn2, "DELETE FROM clients WHERE id=?",(r['id'],)); conn2.commit(); conn2.close(); st.rerun()
     with tab3:
-        conn=get_conn(); ml=conn.execute("SELECT id,name,username FROM clients ORDER BY name").fetchall(); conn.close()
+        conn=get_conn(); ml=_fetchall(_exec(conn, "SELECT id,name,username FROM clients ORDER BY name")); conn.close()
         if not ml: st.info("Add members first.")
         else:
             opts={f"{m['name']} (@{m['username']})":m['id'] for m in ml}
@@ -2195,28 +2317,28 @@ def admin_clients():
                     if not amount: st.error("Amount required.")
                     else:
                         cid=opts[sel]; new_exp=None; conn2=get_conn()
-                        conn2.execute("INSERT INTO payments (client_id,amount,plan,status,payment_method,notes,payment_date) VALUES(?,?,?,?,?,?,?)",(cid,amount,plan,'captured',method,pnotes,str(pd_)))
+                        _exec(conn2, "INSERT INTO payments (client_id,amount,plan,status,payment_method,notes,payment_date) VALUES(?,?,?,?,?,?,?)",(cid,amount,plan,'captured',method,pnotes,str(pd_)))
                         if extend:
                             days_map={"Equity Monthly":30,"Equity Quarterly":90,"Equity Annual":365,"Options Monthly":30,"Options Quarterly":90,"Options Annual":365,"Combo Monthly":30,"Combo Quarterly":90,"Combo Annual":365,"Trial":7}
-                            row=conn2.execute("SELECT expiry_date FROM clients WHERE id=?",(cid,)).fetchone()
+                            row=_exec(conn2, "SELECT expiry_date FROM clients WHERE id=?",(cid,)).fetchone()
                             try:
                                 base=date.fromisoformat(row['expiry_date']) if row['expiry_date'] else date.today()
                                 if base<date.today(): base=date.today()
                                 new_exp=str(base+timedelta(days=days_map.get(plan,30)))
                             except: new_exp=str(date.today()+timedelta(days=30))
-                            conn2.execute("UPDATE clients SET status='Active',expiry_date=?,plan=? WHERE id=?",(new_exp,plan,cid))
+                            _exec(conn2, "UPDATE clients SET status='Active',expiry_date=?,plan=? WHERE id=?",(new_exp,plan,cid))
                         conn2.commit(); conn2.close()
                         st.success(f"✅ ₹{amount:,.0f} logged."+(f" Extended to {new_exp}" if new_exp else ""))
             st.divider()
             st.markdown("#### 📋 Payment History")
-            conn3=get_conn(); pays=conn3.execute("SELECT p.*,c.name,c.username FROM payments p LEFT JOIN clients c ON p.client_id=c.id ORDER BY p.created_at DESC").fetchall(); conn3.close()
+            conn3=get_conn(); pays=_fetchall(_exec(conn3, "SELECT p.*,c.name,c.username FROM payments p LEFT JOIN clients c ON p.client_id=c.id ORDER BY p.created_at DESC")); conn3.close()
             if pays:
                 total=sum(p['amount'] for p in pays if p['amount'])
                 st.markdown(f'<div class="metric-card" style="max-width:300px"><div class="metric-value" style="color:#00ffb4">₹{total:,.0f}</div><div class="metric-label">Total Revenue</div></div>',unsafe_allow_html=True)
                 for p in pays:
                     st.markdown(f'<div class="call-card"><b style="color:#fff">{p["name"] or "Unknown"}</b> <span style="color:#445566">@{p["username"] or "—"}</span><span style="color:#00ffb4;float:right;font-weight:800;font-size:20px">₹{p["amount"]:,.0f}</span><br><span style="color:#99aabb;font-size:13px">{p["plan"]} | {p["payment_method"] or "—"} | {p["notes"] or "—"} | {p["payment_date"] or "—"}</span></div>',unsafe_allow_html=True)
     with tab4:
-        conn=get_conn(); rows=conn.execute("SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date").fetchall(); conn.close()
+        conn=get_conn(); rows=_exec(conn, "SELECT * FROM clients WHERE status='Active' AND expiry_date IS NOT NULL AND expiry_date<=date('now','+7 days') ORDER BY expiry_date").fetchall(); conn.close()
         if not rows: st.success("✅ No renewals due in 7 days.")
         else:
             st.warning(f"⚠️ {len(rows)} member(s) expiring soon!")
@@ -2236,8 +2358,8 @@ def admin_clients():
 def admin_performance():
     st.markdown('<div class="section-header">📈 Performance Analytics</div>', unsafe_allow_html=True)
     conn=get_conn()
-    eq_rows=conn.execute("SELECT symbol,call_type,entry_price,exit_price,pnl_pct,result,exit_date FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date").fetchall()
-    op_rows=conn.execute("SELECT underlying,option_type,strike,call_type,entry_premium,exit_premium,pnl_pct,result,exit_date FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date").fetchall()
+    eq_rows=_fetchall(_exec(conn, "SELECT symbol,call_type,entry_price,exit_price,pnl_pct,result,exit_date FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date"))
+    op_rows=_fetchall(_exec(conn, "SELECT underlying,option_type,strike,call_type,entry_premium,exit_premium,pnl_pct,result,exit_date FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date"))
     conn.close()
     tab1,tab2,tab3=st.tabs(["📊 Equity","⚡ Options","🔄 Combined"])
     with tab1:
@@ -2306,12 +2428,12 @@ def member_research(member):
                 if call_f   != "All": q += " AND call_type=?";     params.append(call_f)
                 if sym_f.strip():     q += " AND symbol LIKE ?";   params.append(f"%{sym_f.upper().strip()}%")
                 q += " ORDER BY created_at DESC"
-                return conn.execute(q, params).fetchall()
+                return _fetchall(_exec(conn, q, params))
             except Exception:
                 # Fallback for very old schemas — no pdf columns at all
                 try:
                     q2 = "SELECT id, title, COALESCE(broker_house,'') as broker_house, COALESCE(category,'') as category, COALESCE(symbol,'') as symbol, COALESCE(call_type,'') as call_type, COALESCE(target_price,0) as target_price, COALESCE(current_price,0) as current_price, COALESCE(upside_pct,0) as upside_pct, COALESCE(analyst,'') as analyst, COALESCE(report_date,'') as report_date, COALESCE(sector,'') as sector, COALESCE(tags,'') as tags, COALESCE(notes,'') as notes, 'all' as visible_to, '' as pdf_filename, 0 as has_pdf FROM research_reports ORDER BY created_at DESC"
-                    return conn.execute(q2).fetchall()
+                    return _fetchall(_exec(conn, q2))
                 except Exception:
                     return []
 
@@ -2336,7 +2458,7 @@ def member_research(member):
                         if st.session_state.get(view_key, False):
                             st.markdown('<div style="margin-top:8px;font-size:11px;color:#3b2d55;letter-spacing:1px">🔒 PDF is displayed in secure viewer · Saving or downloading is not permitted</div>', unsafe_allow_html=True)
                             conn2 = get_conn()
-                            pdf_row = conn2.execute("SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
+                            pdf_row = _exec(conn2, "SELECT pdf_data FROM research_reports WHERE id=?", (r['id'],)).fetchone()
                             conn2.close()
                             if pdf_row and pdf_row['pdf_data']:
                                 render_pdf_viewer(bytes(pdf_row['pdf_data']), r['id'])
@@ -2357,7 +2479,7 @@ def member_research(member):
         if bc_s != "All": q2 += " AND status=?";       p2.append(bc_s)
         q2 += " ORDER BY created_at DESC"
         try:
-            bc_rows = conn.execute(q2, p2).fetchall()
+            bc_rows = _fetchall(_exec(conn, q2, p2))
         except Exception:
             bc_rows = []
         conn.close()
@@ -2387,7 +2509,7 @@ def adv_equity_home(member):
     st.markdown('<div class="section-header">🚀 Advanced Equity Calls</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Premium equity setups — swing, positional & momentum with deep analysis</div>', unsafe_allow_html=True)
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+    rows = _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC"))
     conn.close()
     if not rows:
         st.markdown('''<div style="background:#0a0715;border:1px solid #00e5ff22;border-radius:14px;padding:32px;text-align:center;">
@@ -2460,9 +2582,9 @@ def adv_options_gex_home(member):
     st.markdown('<div style="font-size:13px;color:#445566;font-weight:600;margin-bottom:10px;">📋 Latest GEX Updates</div>', unsafe_allow_html=True)
     conn = get_conn()
     try:
-        gex_rows = conn.execute(
+        gex_rows = _fetchall(_exec(conn, 
             "SELECT * FROM daily_updates WHERE category='GEX Update' ORDER BY created_at DESC LIMIT 5"
-        ).fetchall()
+        ))
     except Exception:
         gex_rows = []
     conn.close()
@@ -2485,23 +2607,23 @@ def equity_home(member):
     st.markdown('<div class="section-sub">Equity Premium Dashboard</div>', unsafe_allow_html=True)
     conn = get_conn()
     c1,c2,c3,c4 = st.columns(4)
-    open_eq = conn.execute("SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0]
-    eq_c    = conn.execute("SELECT pnl_pct FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL").fetchall()
+    open_eq = _exec(conn, "SELECT COUNT(*) FROM equity_calls WHERE status='Open'").fetchone()[0]
+    eq_c    = _fetchall(_exec(conn, "SELECT pnl_pct FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL"))
     eq_wr   = f"{sum(1 for r in eq_c if r[0]>0)/len(eq_c)*100:.0f}%" if eq_c else "—"
     avg_pnl = f"{sum(r[0] for r in eq_c)/len(eq_c):+.1f}%" if eq_c else "—"
-    reps    = conn.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
+    reps    = _exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0]
     for col,val,label,color in [(c1,open_eq,"Equity Open","#00ffb4"),(c2,eq_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("#### 📢 Today's Updates")
-    updates = conn.execute("SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
+    updates = _exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
     if updates:
         for u in updates:
             st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
     else: st.info("No updates today yet.")
     st.divider()
     st.markdown("#### 📊 Active Equity Calls")
-    for r in conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5").fetchall():
+    for r in _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5")):
         rr = round((r['target1']-r['entry_price'])/(r['entry_price']-r['stop_loss']),2) if r['entry_price'] and r['stop_loss'] and r['stop_loss']!=r['entry_price'] else None
         st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
           <b style="color:#fff;font-size:18px">{r['symbol']}</b><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span><span class="badge badge-open">OPEN</span>
@@ -2519,7 +2641,7 @@ def equity_home(member):
 def equity_track_record(member):
     st.markdown('<div class="section-header">📈 Equity Track Record</div>', unsafe_allow_html=True)
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date").fetchall()
+    rows = _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date"))
     conn.close()
     if not rows: st.info("No closed equity calls yet."); return
     pnls = [r['pnl_pct'] for r in rows]; wins = sum(1 for p in pnls if p > 0)
@@ -2550,23 +2672,23 @@ def options_home(member):
     st.markdown('<div class="section-sub">Options & GEX Premium Dashboard</div>', unsafe_allow_html=True)
     conn = get_conn()
     c1,c2,c3,c4 = st.columns(4)
-    open_op = conn.execute("SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0]
-    op_c    = conn.execute("SELECT pnl_pct FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL").fetchall()
+    open_op = _exec(conn, "SELECT COUNT(*) FROM options_calls WHERE status='Open'").fetchone()[0]
+    op_c    = _fetchall(_exec(conn, "SELECT pnl_pct FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL"))
     op_wr   = f"{sum(1 for r in op_c if r[0]>0)/len(op_c)*100:.0f}%" if op_c else "—"
     avg_pnl = f"{sum(r[0] for r in op_c)/len(op_c):+.1f}%" if op_c else "—"
-    reps    = conn.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
+    reps    = _exec(conn, "SELECT COUNT(*) FROM research_reports").fetchone()[0]
     for col,val,label,color in [(c1,open_op,"Options Open","#7b61ff"),(c2,op_wr,"Win Rate","#00ddff"),(c3,avg_pnl,"Avg P&L","#ffd700"),(c4,reps,"Research Reports","#c084fc")]:
         col.markdown(f'<div class="metric-card"><div class="metric-value" style="color:{color}">{val}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("#### 📢 Today's Updates")
-    updates = conn.execute("SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
+    updates = _exec(conn, "SELECT * FROM daily_updates WHERE posted_date=? ORDER BY created_at DESC",(str(date.today()),)).fetchall()
     if updates:
         for u in updates:
             st.markdown(f'<div class="update-card"><span class="tag">{u["category"]}</span><div style="font-weight:700;font-size:17px;margin:10px 0 8px;color:#fff">{u["title"]}</div><div style="color:#c0d0e0;line-height:1.6">{u["content"][:400]}{"..." if len(u["content"])>400 else ""}</div></div>', unsafe_allow_html=True)
     else: st.info("No updates today yet.")
     st.divider()
     st.markdown("#### ⚡ Active Options Calls")
-    for r in conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5").fetchall():
+    for r in _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC LIMIT 5")):
         st.markdown(f"""<div class="call-card {r['call_type'].lower()}">
           <b style="color:#fff;font-size:18px">{r['underlying']} {r['strike']} {r['option_type']}</b><span class="badge badge-{r['call_type'].lower()}">{r['call_type']}</span>
           <span style="font-size:12px;color:#445566;float:right">Exp: {r['expiry']}</span>
@@ -2584,7 +2706,7 @@ def options_gex_analysis(member):
     st.markdown('<div class="section-header">📊 GEX Analysis</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">Weekly Gamma Exposure maps and analysis</div>', unsafe_allow_html=True)
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM daily_updates WHERE category='GEX' ORDER BY created_at DESC LIMIT 12").fetchall()
+    rows = _fetchall(_exec(conn, "SELECT * FROM daily_updates WHERE category='GEX' ORDER BY created_at DESC LIMIT 12"))
     conn.close()
     if not rows: st.info("No GEX analysis posted yet.")
     for r in rows:
@@ -2595,7 +2717,7 @@ def options_gex_analysis(member):
 def options_track_record(member):
     st.markdown('<div class="section-header">📈 Options Track Record</div>', unsafe_allow_html=True)
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date").fetchall()
+    rows = _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Closed' AND pnl_pct IS NOT NULL ORDER BY exit_date"))
     conn.close()
     if not rows: st.info("No closed options calls yet."); return
     pnls = [r['pnl_pct'] for r in rows]; wins = sum(1 for p in pnls if p > 0)
@@ -2632,7 +2754,7 @@ def member_updates(member):
     if date_f:         conds.append("posted_date=?"); params.append(str(date_f))
     if conds: q += " WHERE " + " AND ".join(conds)
     q += " ORDER BY created_at DESC"
-    rows = conn.execute(q, params).fetchall(); conn.close()
+    rows = _fetchall(_exec(conn, q, params)); conn.close()
     if not rows: st.info("No updates in this category.")
     for r in rows:
         cc = {"Pre-Market":"#00ddff","GEX Update":"#7b61ff","Intraday":"#ffd700","Post-Market":"#00ffb4","Market View":"#ff6b6b","Education":"#00ffb4"}.get(r['category'],"#445566")
@@ -2654,7 +2776,7 @@ def member_videos(member):
     st.markdown('<div class="section-sub">Premium educational videos — embedded, view-only</div>', unsafe_allow_html=True)
     conn = get_conn()
     cat_f = st.selectbox("Browse by Category",["All","GEX Education","Options Strategy","Equity Analysis","Market Overview","ESG/Valuation","Live Session","Other"])
-    rows  = conn.execute("SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
+    rows  = _exec(conn, "SELECT * FROM videos"+(f" WHERE category=?" if cat_f!="All" else "")+" ORDER BY created_at DESC",(cat_f,) if cat_f!="All" else ()).fetchall()
     conn.close()
     if not rows: st.info("No videos in this category yet."); return
 
@@ -2780,6 +2902,7 @@ def main():
                 st.session_state.clear()
                 st.rerun()
             st.markdown('<div style="font-size:11px;color:#445566;text-align:center">Dr. Niyas N | Admin</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:10px;text-align:center;margin-top:4px;padding:4px 8px;border-radius:6px;background:#0a0715">{_DB_STATUS}</div>', unsafe_allow_html=True)
 
         _save_session()
         pages = {
@@ -2832,7 +2955,7 @@ def main():
         if page == "📊 Active Calls":
             st.markdown('<div class="section-header">📊 Active Equity Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            rows = _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC"))
             conn.close()
             if not rows: st.info("No active calls right now.")
             for r in rows:
@@ -2892,7 +3015,7 @@ def main():
         if page == "⚡ Active Calls":
             st.markdown('<div class="section-header">⚡ Active Options Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            rows = _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC"))
             conn.close()
             if not rows: st.info("No active options calls right now.")
             for r in rows:
@@ -2952,7 +3075,7 @@ def main():
         if page == "📊 Active Calls":
             st.markdown('<div class="section-header">📊 Active Equity Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            rows = _fetchall(_exec(conn, "SELECT * FROM equity_calls WHERE status='Open' ORDER BY created_at DESC"))
             conn.close()
             if not rows: st.info("No active calls right now.")
             for r in rows:
@@ -3015,7 +3138,7 @@ def main():
         if page == "⚡ Active Calls":
             st.markdown('<div class="section-header">⚡ Active Options Calls</div>', unsafe_allow_html=True)
             conn = get_conn()
-            rows = conn.execute("SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC").fetchall()
+            rows = _fetchall(_exec(conn, "SELECT * FROM options_calls WHERE status='Open' ORDER BY created_at DESC"))
             conn.close()
             if not rows: st.info("No active options calls right now.")
             for r in rows:
