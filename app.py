@@ -3237,6 +3237,14 @@ def main():
         select_portal()
         return
 
+    # ── Restore sidebar visibility for all logged-in portals ──────────
+    # The login/select pages hide the sidebar with display:none.
+    # Once logged in, we must explicitly re-show it.
+    st.markdown('''<style>
+    [data-testid="stSidebar"]{display:flex!important;visibility:visible!important;}
+    .block-container{max-width:100%!important;padding-left:1rem!important;padding-right:1rem!important;}
+    </style>''', unsafe_allow_html=True)
+
     # ── ADMIN PORTAL ──────────────────────────────────────────────────
     if portal == "admin":
         if not st.session_state.get("admin_logged_in"):
