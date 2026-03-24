@@ -502,13 +502,13 @@ def init_db():
         plan TEXT DEFAULT 'Equity Monthly', status TEXT DEFAULT 'Active',
         joined_date TEXT, expiry_date TEXT, notes TEXT,
         reminder_sent INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER,
         amount REAL, currency TEXT DEFAULT 'INR',
         plan TEXT, status TEXT DEFAULT 'captured', payment_method TEXT,
         notes TEXT, payment_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(client_id) REFERENCES clients(id))""")
     _ct("""CREATE TABLE IF NOT EXISTS equity_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
@@ -516,7 +516,7 @@ def init_db():
         target2 REAL, stop_loss REAL, cmp REAL, status TEXT DEFAULT 'Open',
         rationale TEXT, result TEXT, exit_price REAL, pnl_pct REAL,
         posted_date TEXT, exit_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS options_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT, underlying TEXT NOT NULL,
         option_type TEXT, strike REAL, expiry TEXT, call_type TEXT,
@@ -524,18 +524,18 @@ def init_db():
         cmp_premium REAL, status TEXT DEFAULT 'Open', rationale TEXT,
         gex_note TEXT, exit_premium REAL, pnl_pct REAL, result TEXT,
         posted_date TEXT, exit_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS daily_updates (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
         category TEXT, content TEXT, video_url TEXT,
         tags TEXT, posted_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     _ct("""CREATE TABLE IF NOT EXISTS videos (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
         category TEXT, description TEXT,
         embed_code TEXT,
         duration TEXT, posted_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     # Research reports — PDF stored as BYTEA/BLOB, rendered inline (no download)
     _ct("""CREATE TABLE IF NOT EXISTS research_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -555,7 +555,7 @@ def init_db():
         visible_to TEXT DEFAULT 'all',
         pdf_data BLOB,
         pdf_filename TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     # Broker buy/sell calls (structured table)
     _ct("""CREATE TABLE IF NOT EXISTS broker_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -572,7 +572,7 @@ def init_db():
         analyst TEXT,
         status TEXT DEFAULT 'Active',
         call_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     if _USE_PG: conn.commit()
     else: conn.commit()
     conn.close()
