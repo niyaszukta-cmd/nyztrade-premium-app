@@ -353,15 +353,20 @@ st.markdown('''
 <script>
 (function() {
   const MESSAGES = [
-    ["📡 Connecting to servers...",    "Fetching your data"],
-    ["📊 Loading your dashboard...",   "Crunching the numbers"],
-    ["⚡ Fetching latest calls...",    "Almost ready"],
-    ["🔍 Reading the database...",     "Hang tight"],
-    ["📈 Loading market data...",      "Analysing positions"],
-    ["🚀 Preparing your portal...",    "Just a moment"],
-    ["🎯 Syncing live data...",        "Loading your workspace"],
-    ["💎 Loading premium content...",  "Worth the wait"],
+    ["📡 Connecting to servers...",   "Fetching your data"],
+    ["📊 Loading your dashboard...",  "Crunching the numbers"],
+    ["⚡ Fetching latest calls...",   "Almost ready"],
+    ["🔍 Reading the database...",    "Hang tight"],
+    ["📈 Loading market data...",     "Analysing positions"],
+    ["🚀 Preparing your portal...",   "Just a moment"],
+    ["🎯 Syncing live data...",       "Loading your workspace"],
+    ["💎 Loading premium content...", "Worth the wait"],
   ];
+
+  let hideTimer = null;
+  let isLoading = false;
+  let mutationCount = 0;
+  let mutationTimer = null;
 
   function showLoader() {
     const loader = document.getElementById("nyz-loader");
@@ -372,84 +377,92 @@ st.markdown('''
     if (msgEl) msgEl.textContent = msg;
     if (subEl) subEl.textContent = sub;
     loader.classList.add("active");
+    isLoading = true;
+    mutationCount = 0;
+    // Safety fallback — always hide after 10s
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideLoader, 10000);
   }
 
   function hideLoader() {
     const loader = document.getElementById("nyz-loader");
     if (loader) loader.classList.remove("active");
+    isLoading = false;
+    clearTimeout(hideTimer);
   }
 
-  // Hide once Streamlit finishes rendering
-  function watchForRenderComplete() {
-    hideLoader();
-    // Re-observe for next interaction
-    const observer = new MutationObserver(function(mutations) {
-      // Streamlit updates stMarkdownContainer when render is complete
-      const hasContent = mutations.some(m =>
-        m.target && m.target.closest &&
-        (m.target.closest('[data-testid="stMain"]') ||
-         m.target.closest('[data-testid="block-container"]'))
-      );
-      if (hasContent) {
+  // Streamlit render detection:
+  // Wait for mutations to STOP for 400ms — that means rendering is done
+  // This is more reliable than detecting a single mutation (which fires too early)
+  function onMutation() {
+    if (!isLoading) return;
+    mutationCount++;
+    clearTimeout(mutationTimer);
+    // After mutations stop for 400ms, content is fully painted
+    mutationTimer = setTimeout(function() {
+      if (isLoading && mutationCount > 2) {
         hideLoader();
       }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    return observer;
+    }, 400);
   }
 
-  // Show on sidebar radio click (page navigation)
+  // Observe the main content area for Streamlit re-renders
+  function startObserver() {
+    const observer = new MutationObserver(onMutation);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: false,
+      attributes: false
+    });
+  }
+
   function attachSidebarListeners() {
     const sidebar = document.querySelector('[data-testid="stSidebar"]');
     if (!sidebar) return false;
 
-    // Radio buttons (page navigation)
     sidebar.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+      if (radio._nyzListened) return;
+      radio._nyzListened = true;
       radio.addEventListener("change", function() {
+        mutationCount = 0;
         showLoader();
-        // Safety timeout — hide after 8s no matter what
-        setTimeout(hideLoader, 8000);
       });
     });
 
-    // Buttons in sidebar (logout etc)
     sidebar.querySelectorAll("button").forEach(function(btn) {
+      if (btn._nyzListened) return;
+      btn._nyzListened = true;
       btn.addEventListener("click", function() {
-        if (btn.textContent.includes("Logout")) return; // no loader for logout
+        const txt = btn.innerText || "";
+        if (txt.includes("Logout") || txt.includes("🚪")) return;
+        mutationCount = 0;
         showLoader();
-        setTimeout(hideLoader, 8000);
       });
     });
     return true;
   }
 
-  // Poll until sidebar is ready
-  let attempts = 0;
-  const interval = setInterval(function() {
-    attempts++;
-    if (attachSidebarListeners() || attempts > 40) {
-      clearInterval(interval);
-    }
-    // Re-attach on Streamlit rerenders
-    if (attempts > 0 && attempts % 10 === 0) {
-      attachSidebarListeners();
-    }
-  }, 250);
+  // Start mutation observer immediately
+  startObserver();
 
-  // Watch for render complete
-  watchForRenderComplete();
-
-  // Re-attach listeners when Streamlit re-renders sidebar
-  const sidebarObserver = new MutationObserver(function() {
+  // Attach sidebar listeners — poll until sidebar exists, then re-attach on changes
+  let pollAttempts = 0;
+  const poll = setInterval(function() {
+    pollAttempts++;
     attachSidebarListeners();
-  });
-  const tryObserveSidebar = setInterval(function() {
-    const s = document.querySelector('[data-testid="stSidebar"]');
-    if (s) {
-      sidebarObserver.observe(s, { childList: true, subtree: true });
-      clearInterval(tryObserveSidebar);
-    }
+    if (pollAttempts > 60) clearInterval(poll);
   }, 300);
+
+  // Re-attach after Streamlit re-renders sidebar (new radio buttons get injected)
+  const sidebarWatch = setInterval(function() {
+    const s = document.querySelector('[data-testid="stSidebar"]');
+    if (!s) return;
+    clearInterval(sidebarWatch);
+    new MutationObserver(function() {
+      attachSidebarListeners();
+    }).observe(s, { childList: true, subtree: true });
+  }, 500);
 
 })();
 </script>
