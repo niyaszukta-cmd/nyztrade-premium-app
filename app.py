@@ -1439,7 +1439,7 @@ def select_portal():
     st.markdown('''<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;900&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">''', unsafe_allow_html=True)
     st.markdown('''<style>
     .stApp{background:linear-gradient(135deg,#0a0a12 0%,#10091e 60%,#0a0a12 100%)!important;}
-    [data-testid="stSidebar"]{display:none!important;}
+    [data-testid="stSidebar"]{visibility:hidden;}
     .block-container{padding-top:0!important;max-width:1000px!important;}
     </style>''', unsafe_allow_html=True)
 
@@ -1552,7 +1552,7 @@ def portal_login(portal_type):
     st.markdown(f'''<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;900&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
     .stApp{{background:linear-gradient(135deg,#0a0a12 0%,#10091e 60%,#0a0a12 100%)!important;}}
-    [data-testid="stSidebar"]{{display:none!important;}}
+    [data-testid="stSidebar"]{{visibility:hidden;}}
     .block-container{{padding-top:20px!important;max-width:520px!important;}}
     </style>''', unsafe_allow_html=True)
 
@@ -1617,7 +1617,7 @@ def admin_login():
     st.markdown('''<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;900&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
     .stApp{background:linear-gradient(135deg,#0a0a12 0%,#10091e 60%,#0a0a12 100%)!important;}
-    [data-testid="stSidebar"]{display:none!important;}
+    [data-testid="stSidebar"]{visibility:hidden;}
     .block-container{padding-top:20px!important;max-width:520px!important;}
     </style>''', unsafe_allow_html=True)
 
@@ -3241,7 +3241,7 @@ def main():
     # The login/select pages hide the sidebar with display:none.
     # Once logged in, we must explicitly re-show it.
     st.markdown('''<style>
-    [data-testid="stSidebar"]{display:flex!important;visibility:visible!important;}
+    [data-testid="stSidebar"]{visibility:visible!important;}
     .block-container{max-width:100%!important;padding-left:1rem!important;padding-right:1rem!important;}
     </style>''', unsafe_allow_html=True)
 
